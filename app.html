@@ -1181,18 +1181,35 @@ function renderSnapshots() {
     // Click to seek to this formation and load its dots
     el.addEventListener('click', () => {
       seekTo(f.startTime + 0.1);
-      if (hasDots) {
-        dots = snap.dots.map(d => ({ ...d }));
-      } else {
-        initTriangle();
-      }
-      drawGrid();
-      renderDotsList();
-      renderSnapshots();
+      activateFormationByTime(f.startTime + 0.1);
     });
 
     list.appendChild(el);
   });
+}
+
+// Load dots for an in-place formation by index and scroll sidebar to it
+function activateFormationByTime(t) {
+  const formations = window._getFormations ? window._getFormations() : [];
+  const cur = window._getCurrentFormation ? window._getCurrentFormation(formations, t) : null;
+  if (!cur || cur.type !== 'inplace') return;
+  const inPlaceFormations = formations.filter(f => f.type === 'inplace');
+  const i = inPlaceFormations.indexOf(cur);
+  if (i < 0) return;
+  const snap = snapshots[i];
+  if (snap && snap.dots && snap.dots.length > 0) {
+    dots = snap.dots.map(d => ({ ...d }));
+  } else {
+    initTriangle();
+  }
+  drawGrid();
+  renderDotsList();
+  // Scroll sidebar item into view
+  const list = document.getElementById('snapshots-list');
+  if (list && list.children[i]) {
+    list.children[i].scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }
+  renderSnapshots();
 }
 
 // Lightweight: just update which formation is highlighted (called every frame)
@@ -1859,6 +1876,7 @@ function updateOffsetDisplay() {
     }
     if (draggingTimeline) {
       seekTo(currentTime);
+      if (!timelineResumeAfterSeek) activateFormationByTime(currentTime);
       if (timelineResumeAfterSeek) setPlaying(true);
     }
     draggingTimeline = false;
