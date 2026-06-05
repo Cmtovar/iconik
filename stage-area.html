@@ -61,7 +61,7 @@ function draw() {
   ctx.fillRect(left, top, sw, sh);
 
   // Fine grid lines (every 1 unit)
-  ctx.strokeStyle = '#2a2a45';
+  ctx.strokeStyle = '#363655';
   ctx.lineWidth = 0.5;
 
   // Vertical grid lines
@@ -103,6 +103,19 @@ function draw() {
   ctx.quadraticCurveTo(left, top, left + r, top);
   ctx.closePath();
   ctx.stroke();
+
+  // Red dash marks at midpoint of each edge
+  ctx.strokeStyle = '#e94560';
+  ctx.lineWidth = 2;
+  const dashLen = 8;
+  // Top edge midpoint
+  ctx.beginPath(); ctx.moveTo(cx, top - dashLen); ctx.lineTo(cx, top + dashLen); ctx.stroke();
+  // Bottom edge midpoint
+  ctx.beginPath(); ctx.moveTo(cx, top + sh - dashLen); ctx.lineTo(cx, top + sh + dashLen); ctx.stroke();
+  // Left edge midpoint
+  ctx.beginPath(); ctx.moveTo(left - dashLen, cy); ctx.lineTo(left + dashLen, cy); ctx.stroke();
+  // Right edge midpoint
+  ctx.beginPath(); ctx.moveTo(left + sw - dashLen, cy); ctx.lineTo(left + sw + dashLen, cy); ctx.stroke();
 
   // Axis labels at bottom
   ctx.fillStyle = '#777';
