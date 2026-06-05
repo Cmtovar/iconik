@@ -323,6 +323,28 @@
     height: 8px;
     border-radius: 4px;
   }
+
+  /* Video player seek bar thumb */
+  #vp-seek::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: #e94560;
+    cursor: pointer;
+  }
+  #vp-seek::-moz-range-thumb {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: #e94560;
+    border: none;
+    cursor: pointer;
+  }
+  #vp-play-btn:hover {
+    background: #e94560;
+  }
 </style>
 </head>
 <body>
@@ -360,7 +382,18 @@
   </div>
 
   <div id="grid-container">
-    <div id="video-placeholder" style="position:absolute; top:10px; left:50%; transform:translateX(-50%); width:60%; height:35%; background:#16213e; border:1px solid #0f3460; border-radius:8px; display:flex; align-items:center; justify-content:center; color:#555; font-family:monospace; font-size:14px; z-index:5;">Video Player</div>
+    <div id="video-placeholder" style="position:absolute; top:10px; left:50%; transform:translateX(-50%); width:60%; height:35%; background:#16213e; border:1px solid #0f3460; border-radius:8px; display:flex; flex-direction:column; overflow:hidden; z-index:5;">
+      <div style="flex:1; min-height:0; background:#000; display:flex; align-items:center; justify-content:center;">
+        <video id="ref-video" preload="auto" style="display:block; width:100%; height:100%; object-fit:contain;">
+          <source src="reference.mp4" type="video/mp4">
+        </video>
+      </div>
+      <div id="vp-controls" style="display:flex; align-items:center; gap:8px; padding:6px 10px; background:#16213e; flex-shrink:0;">
+        <button id="vp-play-btn" style="background:#0f3460; border:1px solid #e94560; color:#eee; font-family:monospace; font-size:13px; padding:4px 10px; border-radius:4px; cursor:pointer; flex-shrink:0;">Play</button>
+        <input type="range" id="vp-seek" min="0" max="100" step="0.1" value="0" style="flex:1; -webkit-appearance:none; appearance:none; height:6px; background:#0f3460; border-radius:3px; outline:none; cursor:pointer;">
+        <span id="vp-time" style="font-size:12px; white-space:nowrap; flex-shrink:0; color:#eee; font-family:monospace;">00:00 / 00:00</span>
+      </div>
+    </div>
     <canvas id="canvas"></canvas>
   </div>
 </div>
@@ -1539,6 +1572,49 @@ window.addEventListener('resize', resizeGrid);
 resizeGrid();
 renderDotsList();
 renderSnapshots();
+</script>
+
+<!-- Video Player Controls -->
+<script>
+(function() {
+  const vid = document.getElementById('ref-video');
+  const playBtn = document.getElementById('vp-play-btn');
+  const seekBar = document.getElementById('vp-seek');
+  const timeDisp = document.getElementById('vp-time');
+
+  function fmt(sec) {
+    const m = Math.floor(sec / 60);
+    const s = Math.floor(sec % 60);
+    return String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+  }
+
+  playBtn.addEventListener('click', () => {
+    if (vid.paused) vid.play(); else vid.pause();
+  });
+  vid.addEventListener('play', () => { playBtn.textContent = 'Pause'; });
+  vid.addEventListener('pause', () => { playBtn.textContent = 'Play'; });
+  vid.addEventListener('ended', () => { playBtn.textContent = 'Play'; });
+
+  vid.addEventListener('loadedmetadata', () => {
+    seekBar.max = vid.duration;
+    timeDisp.textContent = fmt(0) + ' / ' + fmt(vid.duration);
+  });
+
+  let seeking = false;
+  seekBar.addEventListener('mousedown', () => { seeking = true; });
+  seekBar.addEventListener('mouseup', () => { seeking = false; });
+  seekBar.addEventListener('touchstart', () => { seeking = true; });
+  seekBar.addEventListener('touchend', () => { seeking = false; });
+  seekBar.addEventListener('input', () => {
+    vid.currentTime = parseFloat(seekBar.value);
+    timeDisp.textContent = fmt(vid.currentTime) + ' / ' + fmt(vid.duration || 0);
+  });
+
+  vid.addEventListener('timeupdate', () => {
+    if (!seeking) seekBar.value = vid.currentTime;
+    timeDisp.textContent = fmt(vid.currentTime) + ' / ' + fmt(vid.duration || 0);
+  });
+})();
 </script>
 </body>
 </html>
