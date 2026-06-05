@@ -1,0 +1,1222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Iconik</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: monospace;
+    background: #1a1a2e;
+    color: #eee;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* ===== Audio Player Bar (top) ===== */
+  #audio-player {
+    background: #16213e;
+    padding: 8px 16px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    border-bottom: 1px solid #0f3460;
+    position: relative;
+    flex-shrink: 0;
+    z-index: 20;
+  }
+
+  #drop-overlay {
+    display: none;
+    position: absolute;
+    inset: 0;
+    background: rgba(233, 69, 96, 0.15);
+    border: 2px dashed #e94560;
+    border-radius: 0;
+    z-index: 10;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    color: #e94560;
+    pointer-events: none;
+  }
+  #drop-overlay.visible { display: flex; }
+
+  #load-btn {
+    background: #e94560;
+    color: #eee;
+    border: none;
+    border-radius: 4px;
+    padding: 5px 10px;
+    font-family: monospace;
+    font-size: 12px;
+    cursor: pointer;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  #load-btn:hover { opacity: 0.85; }
+  #file-input { display: none; }
+
+  #play-btn {
+    background: none;
+    border: 2px solid #e94560;
+    color: #e94560;
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    font-size: 14px;
+    line-height: 1;
+    padding: 0;
+  }
+  #play-btn:hover { background: rgba(233, 69, 96, 0.15); }
+  #play-btn:disabled { opacity: 0.35; cursor: default; }
+
+  #filename {
+    font-size: 12px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
+    max-width: 140px;
+    flex-shrink: 1;
+    color: #aaa;
+  }
+
+  #scrub-wrap {
+    flex: 1;
+    min-width: 0;
+    height: 6px;
+    background: #0f3460;
+    border-radius: 3px;
+    cursor: pointer;
+    position: relative;
+  }
+  #scrub-fill {
+    height: 100%;
+    width: 0%;
+    background: #e94560;
+    border-radius: 3px;
+    pointer-events: none;
+  }
+
+  #time-display {
+    font-size: 12px;
+    white-space: nowrap;
+    flex-shrink: 0;
+    color: #ccc;
+  }
+
+  /* ===== Main area: sidebar + grid ===== */
+  #main-area {
+    flex: 1;
+    display: flex;
+    overflow: hidden;
+  }
+
+  #sidebar {
+    width: 260px;
+    background: #16213e;
+    padding: 12px;
+    overflow-y: auto;
+    border-right: 2px solid #0f3460;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    flex-shrink: 0;
+  }
+  #sidebar h2 {
+    font-size: 13px;
+    color: #e94560;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+  #sidebar button {
+    background: #0f3460;
+    color: #eee;
+    border: 1px solid #e94560;
+    padding: 7px 10px;
+    cursor: pointer;
+    font-family: monospace;
+    font-size: 12px;
+    border-radius: 4px;
+  }
+  #sidebar button:hover { background: #e94560; }
+
+  .dot-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 3px 6px;
+    background: #0f3460;
+    border-radius: 4px;
+    font-size: 12px;
+  }
+  .dot-swatch {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    border: 2px solid #fff;
+    flex-shrink: 0;
+  }
+  .dot-item input {
+    background: transparent;
+    border: none;
+    border-bottom: 1px solid #444;
+    color: #eee;
+    font-family: monospace;
+    font-size: 12px;
+    width: 100%;
+    outline: none;
+    padding: 2px 0;
+  }
+  .dot-item input:focus { border-bottom-color: #e94560; }
+
+  #dots-list { display: flex; flex-direction: column; gap: 3px; }
+
+  .snapshot {
+    background: #0f3460;
+    border: 1px solid #333;
+    border-radius: 4px;
+    padding: 6px 8px;
+    cursor: pointer;
+    font-size: 12px;
+    position: relative;
+  }
+  .snapshot:hover { border-color: #e94560; }
+  .snapshot .snap-title { font-weight: bold; margin-bottom: 2px; }
+  .snapshot .snap-info { color: #999; font-size: 11px; }
+  .snapshot .snap-delete {
+    position: absolute;
+    top: 3px;
+    right: 5px;
+    color: #e94560;
+    cursor: pointer;
+    font-size: 14px;
+    background: none;
+    border: none;
+    padding: 2px 4px;
+  }
+
+  #snapshots-list { display: flex; flex-direction: column; gap: 6px; flex: 1; overflow-y: auto; }
+
+  #storage-btns { display: flex; gap: 6px; }
+  #storage-btns button { font-size: 11px; padding: 5px 8px; }
+
+  /* ===== Grid canvas ===== */
+  #grid-container {
+    flex: 1;
+    position: relative;
+    overflow: hidden;
+    cursor: default;
+  }
+  #grid-container canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+  #dot-info {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    background: #16213e;
+    border: 1px solid #0f3460;
+    padding: 6px 10px;
+    border-radius: 4px;
+    font-size: 12px;
+    color: #999;
+  }
+
+  /* ===== Formation timeline bar (bottom) ===== */
+  #timeline-section {
+    flex-shrink: 0;
+    background: #16213e;
+    border-top: 1px solid #0f3460;
+    display: flex;
+    flex-direction: column;
+  }
+  #timeline-controls {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 4px 12px;
+    font-size: 12px;
+    border-bottom: 1px solid #0f3460;
+  }
+  #timeline-controls input {
+    background: #1a1a2e;
+    border: 1px solid #0f3460;
+    color: #eee;
+    font-family: monospace;
+    font-size: 12px;
+    padding: 3px 8px;
+    width: 70px;
+    border-radius: 4px;
+    outline: none;
+  }
+  #timeline-controls input:focus { border-color: #e94560; }
+  #timeline-controls button {
+    background: #0f3460;
+    border: 1px solid #e94560;
+    color: #eee;
+    font-family: monospace;
+    font-size: 11px;
+    padding: 4px 10px;
+    border-radius: 4px;
+    cursor: pointer;
+  }
+  #timeline-controls button:hover { background: #e94560; }
+  .tl-time-display {
+    color: #e94560;
+    font-size: 13px;
+    font-weight: bold;
+    min-width: 50px;
+    text-align: center;
+  }
+  #formation-info {
+    color: #888;
+    font-size: 11px;
+    margin-left: auto;
+  }
+  #timeline-canvas-wrap {
+    height: 90px;
+    position: relative;
+  }
+  #timelineCanvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+</style>
+</head>
+<body>
+
+<!-- ===== Audio Player ===== -->
+<div id="audio-player">
+  <div id="drop-overlay">Drop audio file here</div>
+  <input type="file" id="file-input" accept="audio/*">
+  <button id="load-btn">Load</button>
+  <button id="play-btn" disabled>&#9654;</button>
+  <span id="filename">No file loaded</span>
+  <div id="scrub-wrap"><div id="scrub-fill"></div></div>
+  <span id="time-display">00:00 / 00:00</span>
+</div>
+
+<!-- ===== Main Area ===== -->
+<div id="main-area">
+  <div id="sidebar">
+    <h2>Iconik</h2>
+    <div style="font-size:11px;color:#999;">Drag dots on the grid. Save formations. Build a timeline.</div>
+
+    <h2>Dots</h2>
+    <div id="dots-list"></div>
+
+    <button id="btn-save">Save Formation</button>
+
+    <h2>Formations</h2>
+    <div id="snapshots-list"></div>
+
+    <h2>Data</h2>
+    <div id="storage-btns">
+      <button id="btn-export">Export</button>
+      <button id="btn-import">Import</button>
+    </div>
+  </div>
+
+  <div id="grid-container">
+    <canvas id="canvas"></canvas>
+    <div id="dot-info">Dots: <span id="dot-count">9</span></div>
+  </div>
+</div>
+
+<!-- ===== Formation Timeline Bar ===== -->
+<div id="timeline-section">
+  <div id="timeline-controls">
+    <button id="tl-play-btn">&#9654; Play</button>
+    <span class="tl-time-display" id="tl-time-display">00:00</span>
+    <span style="color:#555;">|</span>
+    <input type="text" id="markerInput" placeholder="mm:ss" title="Timestamp for formation boundary">
+    <button id="addMarkerBtn">Add Marker</button>
+    <span id="formation-info">No formations yet.</span>
+  </div>
+  <div id="timeline-canvas-wrap">
+    <canvas id="timelineCanvas"></canvas>
+  </div>
+</div>
+
+<script>
+// ========================================================================
+//  IconikStorage (inlined from storage.js)
+// ========================================================================
+const IconikStorage = {
+  save(key, data) {
+    try { localStorage.setItem('iconik_' + key, JSON.stringify(data)); }
+    catch (e) { console.warn('localStorage save failed:', e); }
+  },
+  load(key) {
+    try {
+      const raw = localStorage.getItem('iconik_' + key);
+      return raw ? JSON.parse(raw) : null;
+    } catch (e) { console.warn('localStorage load failed:', e); return null; }
+  },
+  exportJSON(key, data, filename) {
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename || 'iconik_' + key + '.json';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  },
+  importJSON() {
+    return new Promise((resolve, reject) => {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = '.json';
+      input.addEventListener('change', () => {
+        const file = input.files[0];
+        if (!file) return reject(new Error('No file selected'));
+        const reader = new FileReader();
+        reader.onload = () => {
+          try { resolve(JSON.parse(reader.result)); }
+          catch (e) { reject(new Error('Invalid JSON file')); }
+        };
+        reader.onerror = () => reject(new Error('Failed to read file'));
+        reader.readAsText(file);
+      });
+      input.click();
+    });
+  }
+};
+
+// ========================================================================
+//  Shared State
+// ========================================================================
+const GRID_SIZE = 30;
+const DOT_RADIUS = 10;
+const COLORS = [
+  '#e94560','#3498db','#2ecc71','#f39c12','#9b59b6',
+  '#1abc9c','#e67e22','#e74c3c','#00bcd4'
+];
+const VISIBLE_WINDOW = 15 * 60; // +/- 15 min
+
+let dots = [];          // { id, gx, gy, color, name }
+let snapshots = [];     // { name, timestamp, dots: [...] }
+let markers = [];       // sorted array of seconds (formation boundaries)
+let formationCounter = 0;
+
+let currentTime = 0;    // shared timeline time in seconds
+let playing = false;
+let lastFrameTime = null;
+
+// Audio element
+const audio = new Audio();
+let audioLoaded = false;
+
+// ========================================================================
+//  Helpers
+// ========================================================================
+function fmt(sec) {
+  if (!isFinite(sec)) sec = 0;
+  const m = Math.floor(sec / 60);
+  const s = Math.floor(sec % 60);
+  return String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+}
+
+function parseTime(str) {
+  str = str.trim();
+  const m = str.match(/^(\d{1,3}):(\d{2})$/);
+  if (!m) return null;
+  const mins = parseInt(m[1], 10);
+  const secs = parseInt(m[2], 10);
+  if (secs >= 60) return null;
+  return mins * 60 + secs;
+}
+
+function lerp(a, b, t) {
+  return a + (b - a) * t;
+}
+
+// ========================================================================
+//  Persistence
+// ========================================================================
+function autoSave() {
+  IconikStorage.save('app', {
+    dots: dots.map(d => ({ id: d.id, gx: d.gx, gy: d.gy, color: d.color, name: d.name })),
+    snapshots,
+    markers,
+    formationCounter
+  });
+}
+
+function autoRestore() {
+  const data = IconikStorage.load('app');
+  if (data) {
+    if (data.dots && data.dots.length === 9) {
+      dots = data.dots.map(d => ({
+        id: d.id,
+        gx: d.gx,
+        gy: d.gy,
+        color: d.color || COLORS[(d.id - 1) % COLORS.length],
+        name: d.name || ''
+      }));
+    }
+    if (data.snapshots) snapshots = data.snapshots;
+    if (data.markers) { markers = data.markers; markers.sort((a, b) => a - b); }
+    if (data.formationCounter) formationCounter = data.formationCounter;
+  }
+}
+
+// ========================================================================
+//  Dot Grid
+// ========================================================================
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+
+let hoveredDot = null;
+let draggingDot = null;
+let dragPixelX = 0;
+let dragPixelY = 0;
+
+function initTriangle() {
+  const cx = 15, topY = 5, sp = 3;
+  const positions = [
+    { gx: cx, gy: topY },
+    { gx: cx - sp, gy: topY + sp },
+    { gx: cx + sp, gy: topY + sp },
+    { gx: cx - 2 * sp, gy: topY + 2 * sp },
+    { gx: cx, gy: topY + 2 * sp },
+    { gx: cx + 2 * sp, gy: topY + 2 * sp },
+    { gx: cx - 2 * sp, gy: topY + 3 * sp },
+    { gx: cx, gy: topY + 3 * sp },
+    { gx: cx + 2 * sp, gy: topY + 3 * sp },
+  ];
+  dots = positions.map((pos, i) => ({
+    id: i + 1,
+    gx: pos.gx,
+    gy: pos.gy,
+    color: COLORS[i],
+    name: ''
+  }));
+}
+
+function resizeGrid() {
+  canvas.width = canvas.parentElement.clientWidth;
+  canvas.height = canvas.parentElement.clientHeight;
+  drawGrid();
+}
+
+function drawGrid() {
+  const w = canvas.width, h = canvas.height;
+  ctx.clearRect(0, 0, w, h);
+
+  // grid lines
+  ctx.strokeStyle = '#222244';
+  ctx.lineWidth = 1;
+  for (let x = 0; x <= w; x += GRID_SIZE) {
+    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke();
+  }
+  for (let y = 0; y <= h; y += GRID_SIZE) {
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
+  }
+
+  // dots
+  for (const dot of dots) {
+    let x, y;
+    if (dot === draggingDot) {
+      x = dragPixelX;
+      y = dragPixelY;
+    } else {
+      x = dot.gx * GRID_SIZE;
+      y = dot.gy * GRID_SIZE;
+    }
+    ctx.beginPath();
+    ctx.arc(x, y, DOT_RADIUS, 0, Math.PI * 2);
+    ctx.fillStyle = (dot === hoveredDot || dot === draggingDot) ? '#fff' : (dot.color || '#e94560');
+    ctx.fill();
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // id label
+    ctx.fillStyle = (dot === hoveredDot || dot === draggingDot) ? '#333' : '#fff';
+    ctx.font = 'bold 10px monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(dot.id, x, y);
+
+    // name label above
+    if (dot.name) {
+      ctx.fillStyle = '#eee';
+      ctx.font = 'bold 11px monospace';
+      ctx.fillText(dot.name, x, y - DOT_RADIUS - 6);
+    }
+  }
+
+  document.getElementById('dot-count').textContent = dots.length;
+}
+
+function snapToGrid(px, py) {
+  return { gx: Math.round(px / GRID_SIZE), gy: Math.round(py / GRID_SIZE) };
+}
+
+function findDotAt(gx, gy) {
+  return dots.find(d => d.gx === gx && d.gy === gy) || null;
+}
+
+function findDotNearPixel(px, py) {
+  for (const dot of dots) {
+    const dx = dot.gx * GRID_SIZE - px;
+    const dy = dot.gy * GRID_SIZE - py;
+    if (Math.sqrt(dx * dx + dy * dy) <= DOT_RADIUS + 4) return dot;
+  }
+  return null;
+}
+
+// Drag handling on grid
+canvas.addEventListener('mousedown', (e) => {
+  if (e.button !== 0) return;
+  const rect = canvas.getBoundingClientRect();
+  const px = e.clientX - rect.left;
+  const py = e.clientY - rect.top;
+  const dot = findDotNearPixel(px, py);
+  if (dot) {
+    draggingDot = dot;
+    dragPixelX = dot.gx * GRID_SIZE;
+    dragPixelY = dot.gy * GRID_SIZE;
+    canvas.style.cursor = 'grabbing';
+    drawGrid();
+  }
+});
+
+canvas.addEventListener('mousemove', (e) => {
+  const rect = canvas.getBoundingClientRect();
+  const px = e.clientX - rect.left;
+  const py = e.clientY - rect.top;
+  if (draggingDot) {
+    dragPixelX = px;
+    dragPixelY = py;
+    drawGrid();
+  } else {
+    const prev = hoveredDot;
+    hoveredDot = findDotNearPixel(px, py);
+    if (hoveredDot !== prev) {
+      canvas.style.cursor = hoveredDot ? 'grab' : 'default';
+      drawGrid();
+    }
+  }
+});
+
+canvas.addEventListener('mouseup', (e) => {
+  if (!draggingDot) return;
+  const rect = canvas.getBoundingClientRect();
+  const px = e.clientX - rect.left;
+  const py = e.clientY - rect.top;
+  const { gx, gy } = snapToGrid(px, py);
+  const occupant = findDotAt(gx, gy);
+  if (!occupant || occupant === draggingDot) {
+    draggingDot.gx = gx;
+    draggingDot.gy = gy;
+  }
+  draggingDot = null;
+  canvas.style.cursor = 'default';
+  drawGrid();
+  renderDotsList();
+  autoSave();
+});
+
+canvas.addEventListener('mouseleave', () => {
+  if (draggingDot) {
+    draggingDot = null;
+    canvas.style.cursor = 'default';
+    drawGrid();
+  }
+  hoveredDot = null;
+});
+
+canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+
+// ========================================================================
+//  Sidebar: Dots List
+// ========================================================================
+function renderDotsList() {
+  const list = document.getElementById('dots-list');
+  list.innerHTML = '';
+  for (const dot of dots) {
+    const el = document.createElement('div');
+    el.className = 'dot-item';
+    const swatch = document.createElement('div');
+    swatch.className = 'dot-swatch';
+    swatch.style.background = dot.color || '#e94560';
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.value = dot.name || '';
+    input.placeholder = 'Dot ' + dot.id;
+    input.addEventListener('input', () => {
+      dot.name = input.value;
+      drawGrid();
+      autoSave();
+    });
+    el.appendChild(swatch);
+    el.appendChild(input);
+    list.appendChild(el);
+  }
+}
+
+// ========================================================================
+//  Sidebar: Snapshots (Formations)
+// ========================================================================
+document.getElementById('btn-save').addEventListener('click', () => {
+  formationCounter++;
+  const snap = {
+    name: 'Formation ' + formationCounter,
+    timestamp: new Date().toLocaleString(),
+    dots: dots.map(d => ({ ...d }))
+  };
+  snapshots.push(snap);
+  renderSnapshots();
+  autoSave();
+});
+
+function renderSnapshots() {
+  const list = document.getElementById('snapshots-list');
+  list.innerHTML = '';
+  snapshots.forEach((snap, i) => {
+    const el = document.createElement('div');
+    el.className = 'snapshot';
+    el.innerHTML =
+      '<div class="snap-title">' + snap.name + ' (' + snap.dots.length + ' dots)</div>' +
+      '<div class="snap-info">' + snap.timestamp + '</div>' +
+      '<button class="snap-delete" data-i="' + i + '">&times;</button>';
+    el.addEventListener('click', (e) => {
+      if (e.target.classList.contains('snap-delete')) return;
+      dots = snap.dots.map(d => ({ ...d }));
+      drawGrid();
+      renderDotsList();
+      autoSave();
+    });
+    el.querySelector('.snap-delete').addEventListener('click', () => {
+      snapshots.splice(i, 1);
+      renderSnapshots();
+      autoSave();
+    });
+    list.appendChild(el);
+  });
+}
+
+// ========================================================================
+//  Export / Import
+// ========================================================================
+document.getElementById('btn-export').addEventListener('click', () => {
+  IconikStorage.exportJSON('app', {
+    dots: dots.map(d => ({ id: d.id, gx: d.gx, gy: d.gy, color: d.color, name: d.name })),
+    snapshots, markers, formationCounter
+  });
+});
+
+document.getElementById('btn-import').addEventListener('click', async () => {
+  try {
+    const data = await IconikStorage.importJSON();
+    if (data.dots && data.dots.length === 9) dots = data.dots;
+    if (data.snapshots) snapshots = data.snapshots;
+    if (data.markers) { markers = data.markers; markers.sort((a, b) => a - b); }
+    if (data.formationCounter) formationCounter = data.formationCounter;
+    drawGrid();
+    renderDotsList();
+    renderSnapshots();
+    autoSave();
+  } catch (e) {
+    console.warn('Import cancelled or failed:', e.message);
+  }
+});
+
+// ========================================================================
+//  Audio Player
+// ========================================================================
+(function() {
+  const player    = document.getElementById('audio-player');
+  const fileInput = document.getElementById('file-input');
+  const loadBtn   = document.getElementById('load-btn');
+  const playBtn   = document.getElementById('play-btn');
+  const fileLabel = document.getElementById('filename');
+  const scrubWrap = document.getElementById('scrub-wrap');
+  const scrubFill = document.getElementById('scrub-fill');
+  const timeDisp  = document.getElementById('time-display');
+  const dropOver  = document.getElementById('drop-overlay');
+
+  let scrubDragging = false;
+
+  function updateAudioUI() {
+    scrubFill.style.width = (audio.duration ? (audio.currentTime / audio.duration) * 100 : 0) + '%';
+    timeDisp.textContent = fmt(audio.currentTime) + ' / ' + fmt(audio.duration);
+  }
+
+  function loadFile(file) {
+    if (!file || !file.type.startsWith('audio/')) return;
+    const url = URL.createObjectURL(file);
+    audio.src = url;
+    audio.load();
+    fileLabel.textContent = file.name;
+    audioLoaded = true;
+    playBtn.disabled = false;
+    playBtn.innerHTML = '&#9654;';
+  }
+
+  loadBtn.addEventListener('click', () => fileInput.click());
+  fileInput.addEventListener('change', () => {
+    if (fileInput.files.length) loadFile(fileInput.files[0]);
+  });
+
+  // Drag and drop
+  let dragCounter = 0;
+  player.addEventListener('dragenter', (e) => { e.preventDefault(); dragCounter++; dropOver.classList.add('visible'); });
+  player.addEventListener('dragover', (e) => e.preventDefault());
+  player.addEventListener('dragleave', (e) => { e.preventDefault(); dragCounter--; if (dragCounter <= 0) { dragCounter = 0; dropOver.classList.remove('visible'); } });
+  player.addEventListener('drop', (e) => { e.preventDefault(); dragCounter = 0; dropOver.classList.remove('visible'); if (e.dataTransfer.files.length) loadFile(e.dataTransfer.files[0]); });
+
+  // Play / Pause (synced with timeline)
+  playBtn.addEventListener('click', () => {
+    if (!audioLoaded) return;
+    if (audio.paused) {
+      audio.play();
+      setPlaying(true);
+    } else {
+      audio.pause();
+      setPlaying(false);
+    }
+  });
+
+  audio.addEventListener('ended', () => {
+    setPlaying(false);
+    playBtn.innerHTML = '&#9654;';
+  });
+
+  // Scrub bar
+  function seekAudio(e) {
+    if (!audioLoaded) return;
+    const rect = scrubWrap.getBoundingClientRect();
+    const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    audio.currentTime = ratio * audio.duration;
+    currentTime = audio.currentTime;
+    updateAudioUI();
+  }
+
+  scrubWrap.addEventListener('mousedown', (e) => { scrubDragging = true; seekAudio(e); });
+  document.addEventListener('mousemove', (e) => { if (scrubDragging) seekAudio(e); });
+  document.addEventListener('mouseup', () => { scrubDragging = false; });
+
+  audio.addEventListener('timeupdate', () => {
+    currentTime = audio.currentTime;
+    updateAudioUI();
+  });
+  audio.addEventListener('loadedmetadata', updateAudioUI);
+
+  // Expose for external sync
+  window._audioUpdateUI = updateAudioUI;
+  window._loadFile = loadFile;
+})();
+
+// ========================================================================
+//  Sync: shared play/pause
+// ========================================================================
+function setPlaying(state) {
+  playing = state;
+  const playBtn = document.getElementById('play-btn');
+  const tlPlayBtn = document.getElementById('tl-play-btn');
+  if (playing) {
+    lastFrameTime = performance.now();
+    playBtn.innerHTML = '&#9646;&#9646;';
+    tlPlayBtn.innerHTML = '&#9646;&#9646; Pause';
+    if (audioLoaded && audio.paused) audio.play();
+  } else {
+    playBtn.innerHTML = '&#9654;';
+    tlPlayBtn.innerHTML = '&#9654; Play';
+    if (audioLoaded && !audio.paused) audio.pause();
+  }
+}
+
+// ========================================================================
+//  Formation Timeline Bar
+// ========================================================================
+(function() {
+  const tlCanvas = document.getElementById('timelineCanvas');
+  const tlCtx = tlCanvas.getContext('2d');
+  const tlPlayBtn = document.getElementById('tl-play-btn');
+  const tlTimeDisplay = document.getElementById('tl-time-display');
+  const markerInput = document.getElementById('markerInput');
+  const addMarkerBtn = document.getElementById('addMarkerBtn');
+  const formationInfoEl = document.getElementById('formation-info');
+
+  function getFormations() {
+    const fmts = [];
+    const boundaries = [0, ...markers.slice().sort((a, b) => a - b)];
+    for (let i = 0; i < boundaries.length; i++) {
+      const num = i + 1;
+      const start = boundaries[i];
+      const end = (i + 1 < boundaries.length) ? boundaries[i + 1] : null;
+      const type = (num % 2 === 1) ? 'inplace' : 'transition';
+      fmts.push({ number: num, startTime: start, endTime: end, type });
+    }
+    return fmts;
+  }
+
+  function getCurrentFormation(formations, t) {
+    for (let i = formations.length - 1; i >= 0; i--) {
+      if (t >= formations[i].startTime) return formations[i];
+    }
+    return formations[0] || null;
+  }
+
+  // Expose these globally for animation
+  window._getFormations = getFormations;
+  window._getCurrentFormation = getCurrentFormation;
+
+  // Add marker
+  function addMarker() {
+    const t = parseTime(markerInput.value);
+    if (t === null || t <= 0) {
+      markerInput.style.borderColor = '#e94560';
+      setTimeout(() => { markerInput.style.borderColor = ''; }, 600);
+      return;
+    }
+    if (markers.includes(t)) return;
+    markers.push(t);
+    markers.sort((a, b) => a - b);
+    markerInput.value = '';
+    autoSave();
+  }
+
+  addMarkerBtn.addEventListener('click', addMarker);
+  markerInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') addMarker(); });
+
+  // Play/Pause (synced)
+  tlPlayBtn.addEventListener('click', () => {
+    if (audioLoaded) {
+      if (audio.paused) {
+        audio.play();
+        setPlaying(true);
+      } else {
+        audio.pause();
+        setPlaying(false);
+      }
+    } else {
+      setPlaying(!playing);
+    }
+  });
+
+  // Resize timeline canvas
+  function resizeTL() {
+    const rect = tlCanvas.parentElement.getBoundingClientRect();
+    tlCanvas.width = rect.width * devicePixelRatio;
+    tlCanvas.height = rect.height * devicePixelRatio;
+    tlCanvas.style.width = rect.width + 'px';
+    tlCanvas.style.height = rect.height + 'px';
+    tlCtx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+  }
+  window.addEventListener('resize', resizeTL);
+  resizeTL();
+
+  function timeToX(t, centerTime, width) {
+    const totalWindow = VISIBLE_WINDOW * 2;
+    const left = centerTime - VISIBLE_WINDOW;
+    return ((t - left) / totalWindow) * width;
+  }
+
+  function drawTimeline() {
+    const w = tlCanvas.width / devicePixelRatio;
+    const h = tlCanvas.height / devicePixelRatio;
+    const centerTime = currentTime;
+    const formations = getFormations();
+    const cur = getCurrentFormation(formations, currentTime);
+
+    tlCtx.clearRect(0, 0, w, h);
+    tlCtx.fillStyle = '#16213e';
+    tlCtx.fillRect(0, 0, w, h);
+
+    const barTop = 8;
+    const barHeight = h - 30;
+    const barBottom = barTop + barHeight;
+
+    // Draw formations
+    for (const f of formations) {
+      const start = f.startTime;
+      const end = f.endTime !== null ? f.endTime : centerTime + VISIBLE_WINDOW + 100;
+      const x1 = timeToX(start, centerTime, w);
+      const x2 = timeToX(end, centerTime, w);
+      if (x2 < -50 || x1 > w + 50) continue;
+
+      const isCurrent = cur && cur.number === f.number;
+
+      if (f.type === 'inplace') {
+        const rx = Math.max(x1, -10);
+        const rw = Math.min(x2, w + 10) - rx;
+        if (rw <= 0) continue;
+
+        tlCtx.fillStyle = isCurrent ? '#163d6e' : '#0f3460';
+        tlCtx.strokeStyle = isCurrent ? '#e94560' : '#1a4a7a';
+        tlCtx.lineWidth = isCurrent ? 2 : 1;
+        tlCtx.beginPath();
+        tlCtx.roundRect(rx + 1, barTop, rw - 2, barHeight, 6);
+        tlCtx.fill();
+        tlCtx.stroke();
+
+        const labelX = (x1 + x2) / 2;
+        if (labelX > -50 && labelX < w + 50) {
+          tlCtx.fillStyle = isCurrent ? '#fff' : '#ccc';
+          tlCtx.font = 'bold 11px monospace';
+          tlCtx.textAlign = 'center';
+          tlCtx.textBaseline = 'middle';
+          tlCtx.fillText('F' + f.number, labelX, barTop + barHeight / 2);
+        }
+      } else {
+        // Transition X-crossover
+        const topY = barTop + 2;
+        const botY = barBottom - 2;
+        const midY = (topY + botY) / 2;
+
+        tlCtx.fillStyle = isCurrent ? 'rgba(233,69,96,0.15)' : 'rgba(15,52,96,0.4)';
+        tlCtx.beginPath();
+        tlCtx.moveTo(x1, topY); tlCtx.lineTo((x1 + x2) / 2, midY); tlCtx.lineTo(x1, botY);
+        tlCtx.closePath(); tlCtx.fill();
+        tlCtx.beginPath();
+        tlCtx.moveTo(x2, topY); tlCtx.lineTo((x1 + x2) / 2, midY); tlCtx.lineTo(x2, botY);
+        tlCtx.closePath(); tlCtx.fill();
+
+        tlCtx.strokeStyle = isCurrent ? '#e94560' : '#1a4a7a';
+        tlCtx.lineWidth = isCurrent ? 2 : 1.5;
+        tlCtx.beginPath(); tlCtx.moveTo(x1, topY); tlCtx.lineTo(x2, botY); tlCtx.stroke();
+        tlCtx.beginPath(); tlCtx.moveTo(x1, botY); tlCtx.lineTo(x2, topY); tlCtx.stroke();
+
+        const labelX = (x1 + x2) / 2;
+        if (labelX > -50 && labelX < w + 50 && (x2 - x1) > 30) {
+          tlCtx.fillStyle = isCurrent ? '#e94560' : '#888';
+          tlCtx.font = '9px monospace';
+          tlCtx.textAlign = 'center';
+          tlCtx.textBaseline = 'bottom';
+          tlCtx.fillText('T' + f.number, labelX, topY - 1);
+        }
+      }
+    }
+
+    // Time ticks
+    const tickInterval = 30;
+    const leftTime = centerTime - VISIBLE_WINDOW;
+    const rightTime = centerTime + VISIBLE_WINDOW;
+    const firstTick = Math.ceil(Math.max(0, leftTime) / tickInterval) * tickInterval;
+    tlCtx.font = '9px monospace';
+    tlCtx.textAlign = 'center';
+    tlCtx.textBaseline = 'top';
+    for (let t = firstTick; t <= rightTime; t += tickInterval) {
+      const x = timeToX(t, centerTime, w);
+      if (x < 0 || x > w) continue;
+      const isMajor = (t % 60 === 0);
+      tlCtx.strokeStyle = isMajor ? '#334466' : '#263550';
+      tlCtx.lineWidth = 1;
+      tlCtx.beginPath();
+      tlCtx.moveTo(x, barBottom + 2);
+      tlCtx.lineTo(x, barBottom + (isMajor ? 7 : 4));
+      tlCtx.stroke();
+      if (isMajor || w > 600) {
+        tlCtx.fillStyle = '#667';
+        tlCtx.fillText(fmt(t), x, barBottom + 8);
+      }
+    }
+
+    // Marker lines
+    for (const mt of markers) {
+      const x = timeToX(mt, centerTime, w);
+      if (x < 0 || x > w) continue;
+      tlCtx.strokeStyle = '#e9456055';
+      tlCtx.lineWidth = 1;
+      tlCtx.setLineDash([3, 3]);
+      tlCtx.beginPath();
+      tlCtx.moveTo(x, barTop);
+      tlCtx.lineTo(x, barBottom);
+      tlCtx.stroke();
+      tlCtx.setLineDash([]);
+    }
+
+    // Playhead
+    const phX = w / 2;
+    tlCtx.strokeStyle = '#e94560';
+    tlCtx.lineWidth = 2;
+    tlCtx.beginPath();
+    tlCtx.moveTo(phX, 0);
+    tlCtx.lineTo(phX, h);
+    tlCtx.stroke();
+    tlCtx.fillStyle = '#e94560';
+    tlCtx.beginPath();
+    tlCtx.moveTo(phX, 0);
+    tlCtx.lineTo(phX - 5, 7);
+    tlCtx.lineTo(phX + 5, 7);
+    tlCtx.closePath();
+    tlCtx.fill();
+  }
+
+  function updateInfo() {
+    const formations = getFormations();
+    const cur = getCurrentFormation(formations, currentTime);
+    tlTimeDisplay.textContent = fmt(currentTime);
+    if (!cur) {
+      formationInfoEl.textContent = 'No formations yet.';
+    } else if (formations.length === 1) {
+      formationInfoEl.textContent = 'Formation 1 (in place) -- add markers for more.';
+    } else {
+      const typeLabel = cur.type === 'inplace' ? 'in place' : 'transition';
+      formationInfoEl.textContent = 'Current: F' + cur.number + ' (' + typeLabel + ') | Total: ' + formations.length;
+    }
+  }
+
+  // Click to seek on timeline
+  tlCanvas.addEventListener('click', (e) => {
+    const rect = tlCanvas.getBoundingClientRect();
+    const clickX = e.clientX - rect.left;
+    const w = rect.width;
+    const totalWindow = VISIBLE_WINDOW * 2;
+    const left = currentTime - VISIBLE_WINDOW;
+    const t = left + (clickX / w) * totalWindow;
+    if (t >= 0) {
+      currentTime = t;
+      if (audioLoaded && isFinite(audio.duration)) {
+        audio.currentTime = Math.min(t, audio.duration);
+      }
+    }
+  });
+
+  // ===== Main animation tick =====
+  function tick(now) {
+    // Advance time
+    if (playing) {
+      if (audioLoaded) {
+        currentTime = audio.currentTime;
+      } else {
+        if (lastFrameTime !== null) {
+          const dt = (now - lastFrameTime) / 1000;
+          currentTime += dt;
+        }
+        lastFrameTime = now;
+      }
+    } else {
+      lastFrameTime = null;
+      if (audioLoaded) {
+        currentTime = audio.currentTime;
+      }
+    }
+
+    // Formation-driven dot animation
+    animateDots();
+
+    drawTimeline();
+    updateInfo();
+    if (window._audioUpdateUI) window._audioUpdateUI();
+
+    requestAnimationFrame(tick);
+  }
+
+  requestAnimationFrame(tick);
+})();
+
+// ========================================================================
+//  Formation-Driven Dot Animation
+// ========================================================================
+// When the playhead is in an "in place" (odd) formation, snap to that
+// formation's saved dot arrangement (if one exists in snapshots).
+// When in a "transition" (even) formation, linearly interpolate between
+// the previous and next "in place" formation's dot arrangements.
+
+let lastFormationNumber = -1;
+
+function getSnapshotForFormation(formationNumber) {
+  // Formation numbers in the timeline: 1, 2, 3, ...
+  // Odd = in place. We map odd formation number to the snapshot index.
+  // Formation 1 -> snapshot[0], Formation 3 -> snapshot[1], Formation 5 -> snapshot[2], etc.
+  const inPlaceIndex = Math.floor(formationNumber / 2); // 1->0, 3->1, 5->2
+  if (inPlaceIndex >= 0 && inPlaceIndex < snapshots.length) {
+    return snapshots[inPlaceIndex];
+  }
+  return null;
+}
+
+function animateDots() {
+  const formations = window._getFormations ? window._getFormations() : [];
+  if (formations.length <= 1) return; // No markers, no animation
+
+  const cur = window._getCurrentFormation ? window._getCurrentFormation(formations, currentTime) : null;
+  if (!cur) return;
+
+  if (cur.type === 'inplace') {
+    // Snap to this formation's saved arrangement
+    const snap = getSnapshotForFormation(cur.number);
+    if (snap && snap.dots && snap.dots.length === 9) {
+      let changed = false;
+      for (let i = 0; i < 9; i++) {
+        const target = snap.dots.find(d => d.id === dots[i].id);
+        if (target && (dots[i].gx !== target.gx || dots[i].gy !== target.gy)) {
+          dots[i].gx = target.gx;
+          dots[i].gy = target.gy;
+          changed = true;
+        }
+      }
+      if (changed) drawGrid();
+    }
+  } else {
+    // Transition: interpolate between previous and next in-place formations
+    const prevFormationNum = cur.number - 1; // odd, the one before
+    const nextFormationNum = cur.number + 1; // odd, the one after
+
+    const prevSnap = getSnapshotForFormation(prevFormationNum);
+    const nextSnap = getSnapshotForFormation(nextFormationNum);
+
+    if (prevSnap && prevSnap.dots && nextSnap && nextSnap.dots &&
+        prevSnap.dots.length === 9 && nextSnap.dots.length === 9) {
+      // Calculate interpolation t
+      const duration = cur.endTime !== null ? (cur.endTime - cur.startTime) : 1;
+      const elapsed = currentTime - cur.startTime;
+      const t = Math.max(0, Math.min(1, elapsed / duration));
+
+      for (let i = 0; i < 9; i++) {
+        const from = prevSnap.dots.find(d => d.id === dots[i].id);
+        const to = nextSnap.dots.find(d => d.id === dots[i].id);
+        if (from && to) {
+          dots[i].gx = lerp(from.gx, to.gx, t);
+          dots[i].gy = lerp(from.gy, to.gy, t);
+        }
+      }
+      drawGrid();
+    } else if (prevSnap && prevSnap.dots && prevSnap.dots.length === 9) {
+      // Only have the previous formation, snap to it
+      for (let i = 0; i < 9; i++) {
+        const target = prevSnap.dots.find(d => d.id === dots[i].id);
+        if (target) {
+          dots[i].gx = target.gx;
+          dots[i].gy = target.gy;
+        }
+      }
+      drawGrid();
+    }
+  }
+}
+
+// ========================================================================
+//  Initialization
+// ========================================================================
+initTriangle();
+autoRestore();
+
+window.addEventListener('resize', resizeGrid);
+resizeGrid();
+renderDotsList();
+renderSnapshots();
+</script>
+</body>
+</html>
