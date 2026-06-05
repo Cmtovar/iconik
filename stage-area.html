@@ -56,17 +56,12 @@ function draw() {
   const unitX = sw / 16;
   const unitY = sh / 10; // ~5 units each side vertically
 
-  // Alternating column bands (every 2 units, very subtle)
-  for (let i = -8; i < 8; i++) {
-    if (Math.floor((i + 8) / 2) % 2 === 0) {
-      const bx = cx + i * unitX;
-      ctx.fillStyle = 'rgba(40, 44, 75, 0.25)';
-      ctx.fillRect(bx, top, unitX, sh);
-    }
-  }
+  // Dark fill inside the stage border
+  ctx.fillStyle = '#141428';
+  ctx.fillRect(left, top, sw, sh);
 
   // Fine grid lines (every 1 unit)
-  ctx.strokeStyle = 'rgba(60, 65, 100, 0.3)';
+  ctx.strokeStyle = 'rgba(60, 65, 100, 0.2)';
   ctx.lineWidth = 0.5;
 
   // Vertical grid lines
