@@ -32,7 +32,7 @@ function draw() {
   ctx.fillRect(0, 0, W, H);
 
   // Stage dimensions
-  const marginX = 60, marginY = 50;
+  const marginX = 160, marginY = 50;
   const stageW = W - marginX * 2;
   const stageH = H - marginY * 2 - 30; // reserve 30px for axis labels
 
@@ -105,12 +105,12 @@ function draw() {
   // Red dash marks at midpoint of each edge
   ctx.strokeStyle = '#e94560';
   ctx.lineWidth = 2;
-  const dashLen = 8;
-  // Top edge midpoint
+  const dashLen = 10;
+  // Top edge midpoint — snapped to grid line (cx is on grid)
   ctx.beginPath(); ctx.moveTo(cx, bTop - dashLen); ctx.lineTo(cx, bTop + dashLen); ctx.stroke();
   // Bottom edge midpoint
   ctx.beginPath(); ctx.moveTo(cx, bTop + bH - dashLen); ctx.lineTo(cx, bTop + bH + dashLen); ctx.stroke();
-  // Left edge midpoint
+  // Left edge midpoint — snapped to grid line (cy is on grid)
   ctx.beginPath(); ctx.moveTo(bLeft - dashLen, cy); ctx.lineTo(bLeft + dashLen, cy); ctx.stroke();
   // Right edge midpoint
   ctx.beginPath(); ctx.moveTo(bLeft + bW - dashLen, cy); ctx.lineTo(bLeft + bW + dashLen, cy); ctx.stroke();
