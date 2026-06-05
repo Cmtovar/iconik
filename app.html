@@ -328,13 +328,18 @@
   </div>
 
   <div id="grid-container">
-    <div id="video-toggle" style="position:absolute; top:10px; right:10px; z-index:6; display:flex; gap:4px;">
-      <button class="vid-src-btn active" data-src="reference-browser.mp4" style="background:#e94560; border:1px solid #e94560; color:#eee; font-family:monospace; font-size:11px; padding:4px 10px; border-radius:4px; cursor:pointer;">ZB1</button>
-      <button class="vid-src-btn" data-src="dkdc-browser.mp4" style="background:none; border:1px solid #e94560; color:#e94560; font-family:monospace; font-size:11px; padding:4px 10px; border-radius:4px; cursor:pointer;">DKDC</button>
+    <div id="video-toggle" style="position:absolute; top:10px; right:10px; z-index:6; display:flex; align-items:center; gap:4px;">
+      <button class="vid-src-btn active" data-mode="zb1" style="background:#e94560; border:1px solid #e94560; color:#eee; font-family:monospace; font-size:11px; padding:4px 10px; border-radius:4px; cursor:pointer;">ZB1</button>
+      <button class="vid-src-btn" data-mode="dkdc" style="background:none; border:1px solid #e94560; color:#e94560; font-family:monospace; font-size:11px; padding:4px 10px; border-radius:4px; cursor:pointer;">DKDC</button>
+      <button class="vid-src-btn" data-mode="overlay" style="background:none; border:1px solid #e94560; color:#e94560; font-family:monospace; font-size:11px; padding:4px 10px; border-radius:4px; cursor:pointer;">Overlay</button>
+      <input id="video-opacity" type="range" min="0" max="1" step="0.05" value="0.5" title="DKDC overlay opacity" style="display:none; width:82px; accent-color:#e94560;">
     </div>
     <div id="video-placeholder" style="position:absolute; top:10px; left:50%; transform:translateX(-50%); width:60%; aspect-ratio:16/9; border:1px solid #0f3460; border-radius:8px; overflow:hidden; z-index:5;">
-        <video id="ref-video" muted preload="auto" style="display:block; width:100%; height:100%; object-fit:contain;">
+        <video id="ref-video" class="compare-video" muted preload="auto" playsinline style="position:absolute; inset:0; display:block; width:100%; height:100%; object-fit:contain;">
           <source src="reference-browser.mp4" type="video/mp4">
+        </video>
+        <video id="dkdc-video" class="compare-video" muted preload="auto" playsinline style="position:absolute; inset:0; display:none; width:100%; height:100%; object-fit:contain; opacity:0.5;">
+          <source src="dkdc-browser.mp4" type="video/mp4">
         </video>
     </div>
     <canvas id="canvas"></canvas>
@@ -441,6 +446,7 @@ let formationCounter = 0;
 let currentTime = 0;    // shared timeline time in seconds
 let playing = false;
 let lastFrameTime = null;
+let videoMode = 'zb1';
 
 const VIDEO_SYNC = {
   'reference-browser.mp4': { offset: 0.35 },
@@ -1041,8 +1047,8 @@ document.getElementById('btn-import').addEventListener('click', async () => {
   });
 
   audio.addEventListener('ended', () => {
-    const vid = document.getElementById('ref-video');
-    const videoDone = !vid || vid.ended || vid.currentTime >= vid.duration;
+    const activeVideos = getActiveVideos();
+    const videoDone = activeVideos.length === 0 || activeVideos.every(vid => vid.ended || vid.currentTime >= vid.duration);
     if (videoDone) {
       setPlaying(false);
     }
@@ -1080,22 +1086,23 @@ function setPlaying(state) {
   playing = state;
   const playBtn = document.getElementById('play-btn');
   const tlPlayBtn = document.getElementById('tl-play-btn');
-  const vid = document.getElementById('ref-video');
   if (playing) {
     lastFrameTime = performance.now();
     playBtn.innerHTML = '&#9646;&#9646;';
     tlPlayBtn.innerHTML = '&#9646;&#9646; Pause';
-    syncVideoToClock(true);
+    syncVideosToClock(true);
     if (audioLoaded && audio.paused) audio.play();
-    if (vid && vid.readyState >= 2 && vid.paused && vid.currentTime < vid.duration) vid.play();
+    getActiveVideos().forEach(vid => {
+      if (vid.readyState >= 2 && vid.paused && vid.currentTime < vid.duration) vid.play();
+    });
   } else {
     playBtn.innerHTML = '&#9654;';
     tlPlayBtn.innerHTML = '&#9654; Play';
     if (audioLoaded && !audio.paused) audio.pause();
-    if (vid) {
+    getAllVideos().forEach(vid => {
       vid.playbackRate = 1;
       if (!vid.paused) vid.pause();
-    }
+    });
   }
 }
 
@@ -1105,11 +1112,23 @@ function syncTimeToAll(t) {
   if (audioLoaded && isFinite(audio.duration)) {
     audio.currentTime = Math.min(t, audio.duration);
   }
-  const vid = document.getElementById('ref-video');
-  if (vid && isFinite(vid.duration)) {
+  getAllVideos().forEach(vid => {
+    if (!isFinite(vid.duration)) return;
     vid.currentTime = getVideoTargetTime(vid);
     vid.playbackRate = 1;
-  }
+  });
+}
+
+function getAllVideos() {
+  return Array.from(document.querySelectorAll('.compare-video'));
+}
+
+function getActiveVideos() {
+  const zb1 = document.getElementById('ref-video');
+  const dkdc = document.getElementById('dkdc-video');
+  if (videoMode === 'overlay') return [zb1, dkdc].filter(Boolean);
+  if (videoMode === 'dkdc') return dkdc ? [dkdc] : [];
+  return zb1 ? [zb1] : [];
 }
 
 function getVideoSourceName(vid) {
@@ -1128,8 +1147,7 @@ function getVideoTargetTime(vid) {
   return Math.max(0, Math.min(currentTime + getVideoOffset(vid), vid.duration));
 }
 
-function syncVideoToClock(force) {
-  const vid = document.getElementById('ref-video');
+function syncVideoToClock(force, vid) {
   if (!vid || !isFinite(vid.duration)) return;
 
   const target = getVideoTargetTime(vid);
@@ -1146,6 +1164,10 @@ function syncVideoToClock(force) {
   }
 
   vid.playbackRate = Math.max(0.85, Math.min(1.15, 1 + drift * 0.25));
+}
+
+function syncVideosToClock(force) {
+  getActiveVideos().forEach(vid => syncVideoToClock(force, vid));
 }
 
 // ========================================================================
@@ -1561,7 +1583,7 @@ function syncVideoToClock(force) {
         }
         lastFrameTime = now;
       }
-      syncVideoToClock(false);
+      syncVideosToClock(false);
     } else {
       lastFrameTime = null;
       if (audioLoaded) {
@@ -1699,18 +1721,18 @@ startCloudSync();
 <!-- Video ended handler (synced with audio + timeline) -->
 <script>
 (function() {
-  const vid = document.getElementById('ref-video');
+  getAllVideos().forEach(vid => {
+    vid.addEventListener('loadedmetadata', () => {
+      syncVideoToClock(true, vid);
+    });
 
-  vid.addEventListener('loadedmetadata', () => {
-    syncVideoToClock(true);
-  });
-
-  // When video ends on its own, pause everything if audio is also done
-  vid.addEventListener('ended', () => {
-    const audioDone = !audioLoaded || audio.ended || audio.currentTime >= audio.duration;
-    if (audioDone) {
-      setPlaying(false);
-    }
+    // When video ends on its own, pause everything if audio is also done
+    vid.addEventListener('ended', () => {
+      const audioDone = !audioLoaded || audio.ended || audio.currentTime >= audio.duration;
+      if (audioDone) {
+        setPlaying(false);
+      }
+    });
   });
 })();
 </script>
@@ -1719,29 +1741,51 @@ startCloudSync();
 <script>
 (function() {
   const btns = document.querySelectorAll('.vid-src-btn');
-  const vid = document.getElementById('ref-video');
+  const opacity = document.getElementById('video-opacity');
+  const zb1 = document.getElementById('ref-video');
+  const dkdc = document.getElementById('dkdc-video');
+
+  function setButtonActive(mode) {
+    btns.forEach(b => {
+      const active = b.dataset.mode === mode;
+      b.style.background = active ? '#e94560' : 'none';
+      b.style.color = active ? '#eee' : '#e94560';
+      b.classList.toggle('active', active);
+    });
+  }
+
+  function applyVideoMode(mode) {
+    videoMode = mode;
+    setButtonActive(mode);
+    opacity.style.display = mode === 'overlay' ? 'block' : 'none';
+
+    zb1.style.display = mode === 'dkdc' ? 'none' : 'block';
+    dkdc.style.display = mode === 'zb1' ? 'none' : 'block';
+    zb1.style.opacity = '1';
+    dkdc.style.opacity = mode === 'overlay' ? opacity.value : '1';
+
+    getAllVideos().forEach(vid => {
+      vid.playbackRate = 1;
+      syncVideoToClock(true, vid);
+      if (!getActiveVideos().includes(vid) && !vid.paused) vid.pause();
+    });
+
+    if (playing) {
+      getActiveVideos().forEach(vid => vid.play());
+    }
+  }
+
   btns.forEach(btn => {
     btn.addEventListener('click', () => {
-      const src = btn.dataset.src;
-      if (vid.querySelector('source').src.endsWith(src)) return;
-      const shouldResume = playing;
-      vid.querySelector('source').src = src;
-      vid.playbackRate = 1;
-      vid.load();
-      if (isFinite(vid.duration)) {
-        vid.currentTime = getVideoTargetTime(vid);
-      }
-      if (shouldResume) vid.play();
-      btns.forEach(b => {
-        b.style.background = 'none';
-        b.style.color = '#e94560';
-        b.classList.remove('active');
-      });
-      btn.style.background = '#e94560';
-      btn.style.color = '#eee';
-      btn.classList.add('active');
+      applyVideoMode(btn.dataset.mode);
     });
   });
+
+  opacity.addEventListener('input', () => {
+    if (videoMode === 'overlay') dkdc.style.opacity = opacity.value;
+  });
+
+  applyVideoMode(videoMode);
 })();
 </script>
 </body>
