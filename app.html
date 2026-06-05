@@ -1204,10 +1204,14 @@ function activateFormationByTime(t) {
   }
   drawGrid();
   renderDotsList();
-  // Scroll sidebar item into view
+  // Scroll sidebar with 2-formation buffer
   const list = document.getElementById('snapshots-list');
   if (list && list.children[i]) {
-    list.children[i].scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    const items = list.children;
+    const ahead = Math.min(i + 2, items.length - 1);
+    const behind = Math.max(i - 2, 0);
+    items[ahead].scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    items[behind].scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   }
   renderSnapshots();
 }
@@ -1223,7 +1227,12 @@ function updateActiveFormation() {
   for (let i = 0; i < items.length; i++) {
     const isCurrent = cur && inPlaceFormations[i] && cur.number === inPlaceFormations[i].number;
     items[i].style.borderColor = isCurrent ? '#e94560' : '';
-    if (isCurrent) items[i].scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    if (isCurrent) {
+      const ahead = Math.min(i + 2, items.length - 1);
+      const behind = Math.max(i - 2, 0);
+      items[ahead].scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      items[behind].scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    }
   }
 }
 
