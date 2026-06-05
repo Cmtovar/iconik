@@ -223,17 +223,6 @@
     width: 100%;
     height: 100%;
   }
-  #dot-info {
-    position: absolute;
-    top: 10px;
-    right: 10px;
-    background: #16213e;
-    border: 1px solid #0f3460;
-    padding: 6px 10px;
-    border-radius: 4px;
-    font-size: 12px;
-    color: #999;
-  }
 
   /* ===== Formation timeline bar (bottom) ===== */
   #timeline-section {
@@ -372,7 +361,6 @@
 
   <div id="grid-container">
     <canvas id="canvas"></canvas>
-    <div id="dot-info">Dots: <span id="dot-count">9</span></div>
   </div>
 </div>
 
@@ -596,7 +584,7 @@ function drawGrid() {
   const sh = unit * 10;
 
   const left = (W - sw) / 2;
-  const top = (H - sh - 20) / 2;
+  const top = (H - sh - 20) / 2 + 30;
   const cx = left + sw / 2;
   const cy = top + sh / 2;
 
@@ -731,7 +719,6 @@ function drawGrid() {
     }
   }
 
-  document.getElementById('dot-count').textContent = dots.length;
 }
 
 function snapToGrid(px, py) {
