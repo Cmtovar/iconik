@@ -1223,6 +1223,7 @@ function updateActiveFormation() {
   for (let i = 0; i < items.length; i++) {
     const isCurrent = cur && inPlaceFormations[i] && cur.number === inPlaceFormations[i].number;
     items[i].style.borderColor = isCurrent ? '#e94560' : '';
+    if (isCurrent) items[i].scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   }
 }
 
