@@ -117,7 +117,11 @@
     <button class="btn accent" id="playPauseBtn" title="Play/Pause">&#9654; Play</button>
     <span class="current-time-display" id="currentTimeDisplay">00:00</span>
     <span style="color:#555;">|</span>
-    <input type="text" id="markerInput" placeholder="mm:ss" title="Enter timestamp for next formation marker" />
+    <span style="display:inline-flex;align-items:center;gap:2px;background:#16213e;border:1px solid #0f3460;border-radius:4px;padding:2px 4px;">
+      <input type="text" id="markerMin" placeholder="mm" maxlength="3" style="width:36px;text-align:center;background:transparent;border:none;color:#eee;font-family:'Courier New',monospace;font-size:14px;outline:none;" />
+      <span style="color:#e94560;font-size:16px;font-weight:bold;">:</span>
+      <input type="text" id="markerSec" placeholder="ss" maxlength="2" style="width:36px;text-align:center;background:transparent;border:none;color:#eee;font-family:'Courier New',monospace;font-size:14px;outline:none;" />
+    </span>
     <button class="btn" id="addMarkerBtn">Add Marker</button>
   </div>
   <div class="formation-info" id="formationInfo">No formations yet. Add a marker to begin.</div>
@@ -134,14 +138,15 @@
   let playing = false;
   let currentTime = 0; // seconds (float)
   let lastFrameTime = null;
-  const VISIBLE_WINDOW = 15 * 60; // +/- 15 minutes from center = 30 min total window
+  const VISIBLE_WINDOW = 15; // +/- 15 seconds from center = 30 seconds total visible, 30 slices
 
   // ---- DOM refs ----
   const canvas = document.getElementById('timelineCanvas');
   const ctx = canvas.getContext('2d');
   const playPauseBtn = document.getElementById('playPauseBtn');
   const currentTimeDisplay = document.getElementById('currentTimeDisplay');
-  const markerInput = document.getElementById('markerInput');
+  const markerMin = document.getElementById('markerMin');
+  const markerSec = document.getElementById('markerSec');
   const addMarkerBtn = document.getElementById('addMarkerBtn');
   const formationInfo = document.getElementById('formationInfo');
 
@@ -195,22 +200,45 @@
 
   // ---- Add marker ----
   function addMarker() {
-    const val = markerInput.value;
-    const t = parseTime(val);
-    if (t === null || t <= 0) {
-      markerInput.style.borderColor = '#e94560';
-      setTimeout(() => { markerInput.style.borderColor = ''; }, 600);
-      return;
+    let t;
+    if (markerMin.value === '' && markerSec.value === '') {
+      // No input — stamp current playback time
+      t = Math.floor(currentTime);
+      if (t <= 0) return;
+    } else {
+      const mins = parseInt(markerMin.value, 10) || 0;
+      const secs = parseInt(markerSec.value, 10) || 0;
+      if (secs >= 60) {
+        markerSec.style.borderBottom = '2px solid #e94560';
+        setTimeout(() => { markerSec.style.borderBottom = ''; }, 600);
+        return;
+      }
+      t = mins * 60 + secs;
+      if (t <= 0) return;
     }
-    if (markers.includes(t)) return; // duplicate
+    if (markers.includes(t)) return;
     markers.push(t);
     markers.sort((a, b) => a - b);
-    markerInput.value = '';
+    markerMin.value = '';
+    markerSec.value = '';
+    markerMin.focus();
     render();
   }
 
+  // Auto-tab from min to sec when 1-3 digits typed
+  markerMin.addEventListener('input', () => {
+    markerMin.value = markerMin.value.replace(/\D/g, '');
+    if (markerMin.value.length >= 2) markerSec.focus();
+  });
+  markerSec.addEventListener('input', () => {
+    markerSec.value = markerSec.value.replace(/\D/g, '');
+  });
+
   addMarkerBtn.addEventListener('click', addMarker);
-  markerInput.addEventListener('keydown', (e) => {
+  markerSec.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') addMarker();
+  });
+  markerMin.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') addMarker();
   });
 
@@ -296,7 +324,7 @@
           ctx.font = 'bold 12px Courier New, monospace';
           ctx.textAlign = 'center';
           ctx.textBaseline = 'middle';
-          ctx.fillText('Formation ' + f.number, labelX, barTop + barHeight / 2);
+          ctx.fillText('Formation ' + f.formationLabel, labelX, barTop + barHeight / 2);
         }
       } else {
         // Transition: X-shaped crossover (bowtie/hourglass)
@@ -374,8 +402,9 @@
       ctx.stroke();
 
       if (isMajor || (w > 600)) {
-        ctx.fillStyle = '#667';
-        ctx.fillText(formatTime(t), x, barBottom + 9);
+        ctx.fillStyle = '#bbb';
+        ctx.font = 'bold 11px Courier New, monospace';
+        ctx.fillText(formatTime(t), x, barBottom + 10);
       }
     }
 
@@ -450,19 +479,40 @@
 
   requestAnimationFrame(tick);
 
-  // ---- Click on timeline to seek ----
-  canvas.addEventListener('click', (e) => {
+  // ---- Drag timeline to seek ----
+  let draggingTimeline = false;
+
+  function seekToX(clientX) {
     const rect = canvas.getBoundingClientRect();
-    const clickX = e.clientX - rect.left;
+    const clickX = clientX - rect.left;
     const w = rect.width;
-    const centerTime = currentTime;
     const totalWindow = VISIBLE_WINDOW * 2;
-    const left = centerTime - VISIBLE_WINDOW;
+    const left = currentTime - VISIBLE_WINDOW;
     const t = left + (clickX / w) * totalWindow;
     if (t >= 0) {
       currentTime = t;
+      // Update the min/sec inputs to show current time for easy "Add Marker"
+      const m = Math.floor(currentTime / 60);
+      const s = Math.floor(currentTime % 60);
+      markerMin.value = String(m);
+      markerSec.value = String(s).padStart(2, '0');
       render();
     }
+  }
+
+  canvas.addEventListener('mousedown', (e) => {
+    draggingTimeline = true;
+    seekToX(e.clientX);
+  });
+
+  window.addEventListener('mousemove', (e) => {
+    if (draggingTimeline) {
+      seekToX(e.clientX);
+    }
+  });
+
+  window.addEventListener('mouseup', () => {
+    draggingTimeline = false;
   });
 
 })();
