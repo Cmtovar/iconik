@@ -65,6 +65,11 @@
   <h2>Dot Grid</h2>
   <div id="dot-info-sidebar" style="font-size:12px;color:#999;">Drag dots to reposition them on the grid.</div>
   <h2 style="margin-top:8px;">Dots</h2>
+  <div id="name-toggle" style="display:flex; gap:4px; margin-bottom:4px;">
+    <div style="width:14px; flex-shrink:0;"></div>
+    <button id="btn-all-idol" class="dot-name-btn active" style="flex:1;">Idol</button>
+    <button id="btn-all-member" class="dot-name-btn" style="flex:1;">Member</button>
+  </div>
   <div id="dots-list"></div>
   <button id="btn-save">Save Freeze Frame</button>
   <h2 style="margin-top:8px;">Freeze Frames</h2>
@@ -466,6 +471,22 @@ function renderSnapshots() {
     list.appendChild(el);
   });
 }
+
+// Column toggle buttons
+document.getElementById('btn-all-idol').addEventListener('click', () => {
+  dots.forEach(d => { d.name = d.idol; });
+  draw();
+  renderDotsList();
+  document.getElementById('btn-all-idol').classList.add('active');
+  document.getElementById('btn-all-member').classList.remove('active');
+});
+document.getElementById('btn-all-member').addEventListener('click', () => {
+  dots.forEach(d => { d.name = d.member; });
+  draw();
+  renderDotsList();
+  document.getElementById('btn-all-member').classList.add('active');
+  document.getElementById('btn-all-idol').classList.remove('active');
+});
 
 // Initialize
 initTriangle();
