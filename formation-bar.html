@@ -256,8 +256,8 @@
   function addMarker() {
     let t;
     if (markerMin.value === '' && markerSec.value === '') {
-      // No input — stamp current playback time
-      t = Math.floor(currentTime);
+      // No input — stamp exactly at playhead position
+      t = Math.round(currentTime * 10) / 10;
       if (t <= 0) return;
     } else {
       const mins = parseInt(markerMin.value, 10) || 0;
@@ -572,6 +572,29 @@
   // ---- Drag timeline to seek ----
   let draggingTimeline = false;
 
+  // ---- Drag marker boundaries ----
+  let draggingMarkerIndex = -1; // index into markers[] being dragged, -1 = none
+  const MARKER_GRAB_PX = 8;    // pixel proximity to grab a marker
+
+  // Returns the index of the marker whose boundary line is within MARKER_GRAB_PX
+  // of the given clientX, or -1 if none.
+  function findNearbyMarker(clientX) {
+    const rect = canvas.getBoundingClientRect();
+    const w = rect.width;
+    const mouseX = clientX - rect.left;
+    let bestIdx = -1;
+    let bestDist = Infinity;
+    for (let i = 0; i < markers.length; i++) {
+      const mx = timeToX(markers[i], currentTime, w);
+      const dist = Math.abs(mx - mouseX);
+      if (dist < MARKER_GRAB_PX && dist < bestDist) {
+        bestDist = dist;
+        bestIdx = i;
+      }
+    }
+    return bestIdx;
+  }
+
   function seekToX(clientX) {
     const rect = canvas.getBoundingClientRect();
     const clickX = clientX - rect.left;
@@ -590,18 +613,71 @@
     }
   }
 
+  // Cursor style: show col-resize when hovering near a marker boundary
+  canvas.addEventListener('mousemove', (e) => {
+    if (draggingMarkerIndex >= 0) return; // already dragging a marker
+    if (draggingTimeline) return;         // already seeking
+    const idx = findNearbyMarker(e.clientX);
+    canvas.style.cursor = idx >= 0 ? 'col-resize' : '';
+  });
+
   canvas.addEventListener('mousedown', (e) => {
+    // Check if near a marker boundary first — marker drag takes priority
+    const idx = findNearbyMarker(e.clientX);
+    if (idx >= 0) {
+      draggingMarkerIndex = idx;
+      canvas.style.cursor = 'col-resize';
+      e.preventDefault();
+      return;
+    }
+    // Otherwise, normal timeline seek drag
     draggingTimeline = true;
     seekToX(e.clientX);
   });
 
   window.addEventListener('mousemove', (e) => {
+    if (draggingMarkerIndex >= 0) {
+      // Dragging a marker: compute new time from mouse position
+      const rect = canvas.getBoundingClientRect();
+      const w = rect.width;
+      const mouseX = e.clientX - rect.left;
+      let newTime = xToTime(mouseX, currentTime, w);
+
+      // Clamp: must not go below 0
+      if (newTime < 0) newTime = 0;
+
+      // Must not cross adjacent markers (maintain sort order)
+      const sorted = [...markers].sort((a, b) => a - b);
+      const sortedIdx = sorted.indexOf(markers[draggingMarkerIndex]);
+      if (sortedIdx > 0 && newTime <= sorted[sortedIdx - 1]) {
+        newTime = sorted[sortedIdx - 1] + 0.1;
+      }
+      if (sortedIdx < sorted.length - 1 && newTime >= sorted[sortedIdx + 1]) {
+        newTime = sorted[sortedIdx + 1] - 0.1;
+      }
+
+      // Markers must stay above 0 (they are boundaries after time 0)
+      if (newTime < 0.1) newTime = 0.1;
+
+      markers[draggingMarkerIndex] = Math.round(newTime * 10) / 10; // snap to 0.1s
+      render();
+      return;
+    }
     if (draggingTimeline) {
       seekToX(e.clientX);
     }
   });
 
   window.addEventListener('mouseup', () => {
+    if (draggingMarkerIndex >= 0) {
+      // Finalize: snap to nearest integer second and re-sort
+      markers[draggingMarkerIndex] = Math.round(markers[draggingMarkerIndex]);
+      if (markers[draggingMarkerIndex] < 1) markers[draggingMarkerIndex] = 1;
+      markers.sort((a, b) => a - b);
+      draggingMarkerIndex = -1;
+      canvas.style.cursor = '';
+      render();
+    }
     draggingTimeline = false;
   });
 
