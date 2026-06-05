@@ -99,29 +99,23 @@ let formationCounter = 0;
 
 function initTriangle() {
   // Triangle formation pointing upward, 9 dots:
-  // Row 1 (top):    1 dot centered
-  // Row 2:          2 dots
-  // Row 3:          3 dots
-  // Row 4 (bottom): 3 dots
-  // Center around grid position (15, 8) with spacing of 3 grid units
-  const cx = 15;
-  const topY = 5;
+  // Center-origin coordinates: positive X = right, positive Y = up (stage coords)
   const sp = 3; // spacing in grid units
 
   const positions = [
-    // Row 1: 1 dot
-    { gx: cx, gy: topY },
+    // Row 1 (top): 1 dot
+    { gx: 0, gy: 4 * sp },
     // Row 2: 2 dots
-    { gx: cx - sp, gy: topY + sp },
-    { gx: cx + sp, gy: topY + sp },
+    { gx: -sp, gy: 3 * sp },
+    { gx: sp, gy: 3 * sp },
     // Row 3: 3 dots
-    { gx: cx - 2 * sp, gy: topY + 2 * sp },
-    { gx: cx, gy: topY + 2 * sp },
-    { gx: cx + 2 * sp, gy: topY + 2 * sp },
-    // Row 4: 3 dots
-    { gx: cx - 2 * sp, gy: topY + 3 * sp },
-    { gx: cx, gy: topY + 3 * sp },
-    { gx: cx + 2 * sp, gy: topY + 3 * sp },
+    { gx: -2 * sp, gy: 2 * sp },
+    { gx: 0, gy: 2 * sp },
+    { gx: 2 * sp, gy: 2 * sp },
+    // Row 4 (bottom): 3 dots
+    { gx: -2 * sp, gy: sp },
+    { gx: 0, gy: sp },
+    { gx: 2 * sp, gy: sp },
   ];
 
   dots = positions.map((pos, i) => ({
@@ -140,29 +134,117 @@ function resize() {
 }
 window.addEventListener('resize', resize);
 
+// Convert stage grid coords to canvas pixel coords
+// Stage: +X right, +Y up. Canvas: +X right, +Y down.
+function gridToPixel(gx, gy) {
+  const cx = canvas.width / 2;
+  const cy = canvas.height / 2;
+  return { px: cx + gx * GRID_SIZE, py: cy - gy * GRID_SIZE };
+}
+
+// Convert canvas pixel coords to stage grid coords
+function pixelToGrid(px, py) {
+  const cx = canvas.width / 2;
+  const cy = canvas.height / 2;
+  return {
+    gx: Math.round((px - cx) / GRID_SIZE),
+    gy: Math.round((cy - py) / GRID_SIZE)
+  };
+}
+
+function drawRoundedRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
+}
+
 function draw() {
   const w = canvas.width, h = canvas.height;
+  const centerX = w / 2;
+  const centerY = h / 2;
   ctx.clearRect(0, 0, w, h);
 
-  // grid
+  // Background fill
+  ctx.fillStyle = '#1a1a2e';
+  ctx.fillRect(0, 0, w, h);
+
+  // Alternating column shading for subtle section pattern
+  // Calculate the leftmost grid-aligned column visible
+  const colsLeft = Math.ceil(centerX / GRID_SIZE);
+  const colsRight = Math.ceil((w - centerX) / GRID_SIZE);
+  const maxCols = Math.max(colsLeft, colsRight) + 1;
+  for (let c = -maxCols; c <= maxCols; c++) {
+    if (c % 2 === 0) {
+      const colX = centerX + c * GRID_SIZE - GRID_SIZE / 2;
+      ctx.fillStyle = '#1e2444';
+      ctx.fillRect(colX, 0, GRID_SIZE, h);
+    }
+  }
+
+  // Grid lines
   ctx.strokeStyle = '#222244';
   ctx.lineWidth = 1;
-  for (let x = 0; x <= w; x += GRID_SIZE) {
+  // Vertical lines from center outward
+  for (let c = -maxCols; c <= maxCols; c++) {
+    const x = centerX + c * GRID_SIZE;
+    if (x < 0 || x > w) continue;
     ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke();
   }
-  for (let y = 0; y <= h; y += GRID_SIZE) {
+  // Horizontal lines from center outward
+  const rowsUp = Math.ceil(centerY / GRID_SIZE);
+  const rowsDown = Math.ceil((h - centerY) / GRID_SIZE);
+  const maxRows = Math.max(rowsUp, rowsDown) + 1;
+  for (let r = -maxRows; r <= maxRows; r++) {
+    const y = centerY + r * GRID_SIZE;
+    if (y < 0 || y > h) continue;
     ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
   }
 
-  // dots
+  // Red crosshair through center
+  ctx.strokeStyle = '#e94560';
+  ctx.lineWidth = 1.5;
+  // Vertical line
+  ctx.beginPath(); ctx.moveTo(centerX, 0); ctx.lineTo(centerX, h); ctx.stroke();
+  // Horizontal line
+  ctx.beginPath(); ctx.moveTo(0, centerY); ctx.lineTo(w, centerY); ctx.stroke();
+
+  // Red/coral rounded border rectangle
+  const borderInset = 30;
+  ctx.strokeStyle = '#e94560';
+  ctx.lineWidth = 2;
+  drawRoundedRect(ctx, borderInset, borderInset, w - 2 * borderInset, h - 2 * borderInset, 12);
+  ctx.stroke();
+
+  // Axis labels along the bottom (inside the border)
+  ctx.fillStyle = '#999';
+  ctx.font = 'bold 11px monospace';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  const labelY = h - borderInset + 6;
+  for (let n = -8; n <= 8; n++) {
+    const lx = centerX + n * GRID_SIZE;
+    if (lx < borderInset || lx > w - borderInset) continue;
+    ctx.fillText(Math.abs(n).toString(), lx, labelY);
+  }
+
+  // Dots
   for (const dot of dots) {
     let x, y;
     if (dot === draggingDot) {
       x = dragPixelX;
       y = dragPixelY;
     } else {
-      x = dot.gx * GRID_SIZE;
-      y = dot.gy * GRID_SIZE;
+      const p = gridToPixel(dot.gx, dot.gy);
+      x = p.px;
+      y = p.py;
     }
     ctx.beginPath();
     ctx.arc(x, y, DOT_RADIUS, 0, Math.PI * 2);
@@ -192,10 +274,7 @@ function draw() {
 }
 
 function snapToGrid(px, py) {
-  return {
-    gx: Math.round(px / GRID_SIZE),
-    gy: Math.round(py / GRID_SIZE)
-  };
+  return pixelToGrid(px, py);
 }
 
 function findDotAt(gx, gy) {
@@ -204,8 +283,9 @@ function findDotAt(gx, gy) {
 
 function findDotNearPixel(px, py) {
   for (const dot of dots) {
-    const dx = dot.gx * GRID_SIZE - px;
-    const dy = dot.gy * GRID_SIZE - py;
+    const p = gridToPixel(dot.gx, dot.gy);
+    const dx = p.px - px;
+    const dy = p.py - py;
     if (Math.sqrt(dx * dx + dy * dy) <= DOT_RADIUS + 4) {
       return dot;
     }
@@ -222,8 +302,9 @@ canvas.addEventListener('mousedown', (e) => {
   const dot = findDotNearPixel(px, py);
   if (dot) {
     draggingDot = dot;
-    dragPixelX = dot.gx * GRID_SIZE;
-    dragPixelY = dot.gy * GRID_SIZE;
+    const dp = gridToPixel(dot.gx, dot.gy);
+    dragPixelX = dp.px;
+    dragPixelY = dp.py;
     canvas.style.cursor = 'grabbing';
     draw();
   }
