@@ -1591,7 +1591,6 @@ function syncVideoToClock(force) {
 
   window.addEventListener('mouseup', () => {
     if (draggingMarkerIndex >= 0) {
-      markers[draggingMarkerIndex] = Math.round(markers[draggingMarkerIndex]);
       if (markers[draggingMarkerIndex] < 1) markers[draggingMarkerIndex] = 1;
       markers.sort((a, b) => a - b);
       draggingMarkerIndex = -1;
