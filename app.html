@@ -990,8 +990,13 @@ document.getElementById('btn-import').addEventListener('click', async () => {
   });
 
   audio.addEventListener('ended', () => {
-    setPlaying(false);
-    playBtn.innerHTML = '&#9654;';
+    const vid = document.getElementById('ref-video');
+    const videoDone = !vid || vid.ended || vid.currentTime >= vid.duration;
+    if (videoDone) {
+      setPlaying(false);
+    }
+    // If video is still going, let it keep playing; audio just stays at its end
+    playBtn.innerHTML = playing ? '&#9646;&#9646;' : '&#9654;';
   });
 
   // Scrub bar
@@ -999,8 +1004,8 @@ document.getElementById('btn-import').addEventListener('click', async () => {
     if (!audioLoaded) return;
     const rect = scrubWrap.getBoundingClientRect();
     const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-    audio.currentTime = ratio * audio.duration;
-    currentTime = audio.currentTime;
+    const t = ratio * audio.duration;
+    syncTimeToAll(t);
     updateAudioUI();
   }
 
@@ -1026,15 +1031,33 @@ function setPlaying(state) {
   playing = state;
   const playBtn = document.getElementById('play-btn');
   const tlPlayBtn = document.getElementById('tl-play-btn');
+  const vid = document.getElementById('ref-video');
+  const vpPlayBtn = document.getElementById('vp-play-btn');
   if (playing) {
     lastFrameTime = performance.now();
     playBtn.innerHTML = '&#9646;&#9646;';
     tlPlayBtn.innerHTML = '&#9646;&#9646; Pause';
     if (audioLoaded && audio.paused) audio.play();
+    if (vid && vid.readyState >= 2 && vid.paused && vid.currentTime < vid.duration) vid.play();
+    if (vpPlayBtn) vpPlayBtn.textContent = 'Pause';
   } else {
     playBtn.innerHTML = '&#9654;';
     tlPlayBtn.innerHTML = '&#9654; Play';
     if (audioLoaded && !audio.paused) audio.pause();
+    if (vid && !vid.paused) vid.pause();
+    if (vpPlayBtn) vpPlayBtn.textContent = 'Play';
+  }
+}
+
+// Sync currentTime to all media elements (audio + video)
+function syncTimeToAll(t) {
+  currentTime = t;
+  if (audioLoaded && isFinite(audio.duration)) {
+    audio.currentTime = Math.min(t, audio.duration);
+  }
+  const vid = document.getElementById('ref-video');
+  if (vid && isFinite(vid.duration)) {
+    vid.currentTime = Math.min(t, vid.duration);
   }
 }
 
@@ -1325,10 +1348,7 @@ function setPlaying(state) {
   }
 
   scrollbar.addEventListener('input', () => {
-    currentTime = parseFloat(scrollbar.value);
-    if (audioLoaded && isFinite(audio.duration)) {
-      audio.currentTime = Math.min(currentTime, audio.duration);
-    }
+    syncTimeToAll(parseFloat(scrollbar.value));
   });
 
   // ---- Mouse wheel panning on timeline canvas ----
@@ -1336,10 +1356,7 @@ function setPlaying(state) {
     e.preventDefault();
     const delta = e.deltaX !== 0 ? e.deltaX : e.deltaY;
     const panAmount = delta * 0.05;
-    currentTime = Math.max(0, currentTime + panAmount);
-    if (audioLoaded && isFinite(audio.duration)) {
-      audio.currentTime = Math.min(currentTime, audio.duration);
-    }
+    syncTimeToAll(Math.max(0, currentTime + panAmount));
   }, { passive: false });
 
   // ---- Drag timeline to seek ----
@@ -1372,10 +1389,7 @@ function setPlaying(state) {
     const w = rect.width;
     const t = xToTime(clickX, currentTime, w);
     if (t >= 0) {
-      currentTime = t;
-      if (audioLoaded && isFinite(audio.duration)) {
-        audio.currentTime = Math.min(t, audio.duration);
-      }
+      syncTimeToAll(t);
       // Update the min/sec inputs to show current time for easy "Add Marker"
       const m = Math.floor(currentTime / 60);
       const s = Math.floor(currentTime % 60);
@@ -1449,6 +1463,8 @@ function setPlaying(state) {
 
   // ===== Main animation tick =====
   function tick(now) {
+    const vid = document.getElementById('ref-video');
+
     // Advance time
     if (playing) {
       if (audioLoaded) {
@@ -1459,6 +1475,13 @@ function setPlaying(state) {
           currentTime += dt;
         }
         lastFrameTime = now;
+      }
+      // Keep video in sync with currentTime during playback
+      if (vid && isFinite(vid.duration)) {
+        const drift = Math.abs(vid.currentTime - currentTime);
+        if (drift > 0.3) {
+          vid.currentTime = Math.min(currentTime, vid.duration);
+        }
       }
     } else {
       lastFrameTime = null;
@@ -1574,45 +1597,55 @@ renderDotsList();
 renderSnapshots();
 </script>
 
-<!-- Video Player Controls -->
+<!-- Video Player Controls (synced with audio + timeline) -->
 <script>
 (function() {
   const vid = document.getElementById('ref-video');
-  const playBtn = document.getElementById('vp-play-btn');
+  const vpPlayBtn = document.getElementById('vp-play-btn');
   const seekBar = document.getElementById('vp-seek');
   const timeDisp = document.getElementById('vp-time');
 
-  function fmt(sec) {
+  function vfmt(sec) {
     const m = Math.floor(sec / 60);
     const s = Math.floor(sec % 60);
     return String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
   }
 
-  playBtn.addEventListener('click', () => {
-    if (vid.paused) vid.play(); else vid.pause();
+  // Play/Pause drives the unified state
+  vpPlayBtn.addEventListener('click', () => {
+    setPlaying(!playing);
   });
-  vid.addEventListener('play', () => { playBtn.textContent = 'Pause'; });
-  vid.addEventListener('pause', () => { playBtn.textContent = 'Play'; });
-  vid.addEventListener('ended', () => { playBtn.textContent = 'Play'; });
+
+  // When video ends on its own, pause everything
+  vid.addEventListener('ended', () => {
+    // Only stop all if audio has also ended (or isn't loaded)
+    const audioDone = !audioLoaded || audio.ended || audio.currentTime >= audio.duration;
+    if (audioDone) {
+      setPlaying(false);
+    }
+    // Otherwise let audio keep driving; video just stays at its end
+    vpPlayBtn.textContent = playing ? 'Pause' : 'Play';
+  });
 
   vid.addEventListener('loadedmetadata', () => {
     seekBar.max = vid.duration;
-    timeDisp.textContent = fmt(0) + ' / ' + fmt(vid.duration);
+    timeDisp.textContent = vfmt(0) + ' / ' + vfmt(vid.duration);
   });
 
+  // Seek bar drives unified time
   let seeking = false;
   seekBar.addEventListener('mousedown', () => { seeking = true; });
   seekBar.addEventListener('mouseup', () => { seeking = false; });
   seekBar.addEventListener('touchstart', () => { seeking = true; });
   seekBar.addEventListener('touchend', () => { seeking = false; });
   seekBar.addEventListener('input', () => {
-    vid.currentTime = parseFloat(seekBar.value);
-    timeDisp.textContent = fmt(vid.currentTime) + ' / ' + fmt(vid.duration || 0);
+    syncTimeToAll(parseFloat(seekBar.value));
+    timeDisp.textContent = vfmt(vid.currentTime) + ' / ' + vfmt(vid.duration || 0);
   });
 
   vid.addEventListener('timeupdate', () => {
     if (!seeking) seekBar.value = vid.currentTime;
-    timeDisp.textContent = fmt(vid.currentTime) + ' / ' + fmt(vid.duration || 0);
+    timeDisp.textContent = vfmt(vid.currentTime) + ' / ' + vfmt(vid.duration || 0);
   });
 })();
 </script>
