@@ -49,14 +49,31 @@ function draw() {
   const cy = top + sh / 2;
   const unitX = unit;
 
-  // Dark fill (extends 1 unit beyond border on each side)
+  // Rounded clip path for stage fill
+  const r = 14;
+  const bLeft = left - unit, bTop = top, bW = sw + unit * 2, bH = sh;
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(bLeft + r, bTop);
+  ctx.lineTo(bLeft + bW - r, bTop);
+  ctx.quadraticCurveTo(bLeft + bW, bTop, bLeft + bW, bTop + r);
+  ctx.lineTo(bLeft + bW, bTop + bH - r);
+  ctx.quadraticCurveTo(bLeft + bW, bTop + bH, bLeft + bW - r, bTop + bH);
+  ctx.lineTo(bLeft + r, bTop + bH);
+  ctx.quadraticCurveTo(bLeft, bTop + bH, bLeft, bTop + bH - r);
+  ctx.lineTo(bLeft, bTop + r);
+  ctx.quadraticCurveTo(bLeft, bTop, bLeft + r, bTop);
+  ctx.closePath();
+  ctx.clip();
+
+  // Dark fill
   ctx.fillStyle = '#2d2d44';
-  ctx.fillRect(left - unit, top, sw + unit * 2, sh);
+  ctx.fillRect(bLeft, bTop, bW, bH);
 
   // Outer columns (2 on each side) slightly lighter
   ctx.fillStyle = '#3f3f55';
-  ctx.fillRect(left - unit, top, unit * 2, sh);           // left 2 columns
-  ctx.fillRect(left + sw - unit, top, unit * 2, sh);      // right 2 columns
+  ctx.fillRect(bLeft, bTop, unit * 2, bH);           // left 2 columns
+  ctx.fillRect(left + sw - unit, bTop, unit * 2, bH);      // right 2 columns
 
   // Fine grid lines (every 1 unit)
   ctx.strokeStyle = '#505065';
@@ -82,6 +99,8 @@ function draw() {
   }
 
 
+  ctx.restore(); // remove clip
+
   // Red cross at center point
   ctx.strokeStyle = '#e94560';
   ctx.lineWidth = 1.5;
@@ -93,8 +112,6 @@ function draw() {
   ctx.strokeStyle = '#e94560';
   ctx.lineWidth = 2.5;
   ctx.beginPath();
-  const r = 14;
-  const bLeft = left - unit, bTop = top, bW = sw + unit * 2, bH = sh;
   ctx.moveTo(bLeft + r, bTop);
   ctx.lineTo(bLeft + bW - r, bTop);
   ctx.quadraticCurveTo(bLeft + bW, bTop, bLeft + bW, bTop + r);
