@@ -601,6 +601,15 @@ function applyAppState(data) {
   }
   if (Number.isFinite(data.formationCounter)) formationCounter = data.formationCounter;
   if (Array.isArray(data.flaggedFormations)) flaggedFormations = new Set(data.flaggedFormations);
+  // Assign _startTime to loaded snapshots based on current markers
+  const boundaries = [0, ...markers];
+  let si = 0;
+  for (let i = 0; i < boundaries.length && si < snapshots.length; i++) {
+    if ((i + 1) % 2 === 1) { // odd = in-place
+      snapshots[si]._startTime = boundaries[i];
+      si++;
+    }
+  }
 }
 
 function hasMeaningfulState(state) {
@@ -1085,10 +1094,24 @@ function renderSnapshots() {
   const formations = window._getFormations ? window._getFormations() : [];
   const inPlaceFormations = formations.filter(f => f.type === 'inplace');
 
-  // Ensure snapshots array matches the number of in-place formations
-  while (snapshots.length < inPlaceFormations.length) {
-    snapshots.push({ name: 'Formation ' + (snapshots.length + 1), dots: null });
+  // Align snapshots with in-place formations by matching start times
+  // Each snapshot tracks the startTime of the formation it belongs to
+  const newSnaps = [];
+  for (let fi = 0; fi < inPlaceFormations.length; fi++) {
+    const ft = inPlaceFormations[fi].startTime;
+    // Find existing snapshot that matches this start time
+    const existing = snapshots.find(s => s._startTime === ft);
+    if (existing) {
+      newSnaps.push(existing);
+    } else {
+      newSnaps.push({ name: 'Formation ' + (fi + 1), dots: null, _startTime: ft });
+    }
   }
+  // Update _startTime on all snapshots
+  for (let fi = 0; fi < newSnaps.length; fi++) {
+    newSnaps[fi]._startTime = inPlaceFormations[fi].startTime;
+  }
+  snapshots = newSnaps;
 
   const curFormation = window._getCurrentFormation ? window._getCurrentFormation(formations, currentTime) : null;
 
