@@ -178,15 +178,17 @@
   // Odd formations (1, 3, 5...) are "in place", even (2, 4, 6...) are "transition".
 
   function getFormations() {
-    // Returns array of { number, startTime, endTime, type }
+    // Returns array of { number, startTime, endTime, type, formationLabel }
     const fmts = [];
     const boundaries = [0, ...markers.sort((a, b) => a - b)];
+    let inPlaceCount = 0;
     for (let i = 0; i < boundaries.length; i++) {
       const num = i + 1;
       const start = boundaries[i];
-      const end = (i + 1 < boundaries.length) ? boundaries[i + 1] : null; // null = open-ended
+      const end = (i + 1 < boundaries.length) ? boundaries[i + 1] : null;
       const type = (num % 2 === 1) ? 'inplace' : 'transition';
-      fmts.push({ number: num, startTime: start, endTime: end, type });
+      if (type === 'inplace') inPlaceCount++;
+      fmts.push({ number: num, startTime: start, endTime: end, type, formationLabel: type === 'inplace' ? inPlaceCount : num });
     }
     return fmts;
   }
