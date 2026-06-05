@@ -681,6 +681,16 @@
     draggingTimeline = false;
   });
 
+  // ---- Right-click to delete marker boundary ----
+  canvas.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    const idx = findNearbyMarker(e.clientX);
+    if (idx >= 0) {
+      markers.splice(idx, 1);
+      render();
+    }
+  });
+
 })();
 </script>
 </body>
