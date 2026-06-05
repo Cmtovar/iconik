@@ -137,18 +137,13 @@
     border: 1.5px solid #fff;
     flex-shrink: 0;
   }
-  .dot-item input {
-    background: transparent;
-    border: none;
-    border-bottom: 1px solid #444;
-    color: #eee;
-    font-family: monospace;
-    font-size: 11px;
-    width: 100%;
-    outline: none;
-    padding: 1px 0;
+  .dot-name-btn {
+    background: none; border: 1px solid #333; color: #999; padding: 2px 6px;
+    font-family: monospace; font-size: 11px; border-radius: 3px; cursor: pointer;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
-  .dot-item input:focus { border-bottom-color: #e94560; }
+  .dot-name-btn:hover { border-color: #e94560; color: #eee; }
+  .dot-name-btn.active { border-color: #e94560; color: #eee; background: #e94560; }
 
   #dots-list { display: flex; flex-direction: column; gap: 1px; }
 
@@ -312,6 +307,11 @@
     <div style="font-size:11px;color:#999;">Drag dots on the grid. Save formations. Build a timeline.</div>
 
     <h2>Dots</h2>
+    <div id="name-toggle" style="display:flex; gap:4px; margin-bottom:4px;">
+      <div style="width:10px; flex-shrink:0;"></div>
+      <button id="btn-all-idol" class="dot-name-btn active" style="flex:1;">Idol</button>
+      <button id="btn-all-member" class="dot-name-btn" style="flex:1;">Member</button>
+    </div>
     <div id="dots-list"></div>
 
     <button id="btn-save">Save Formation</button>
@@ -324,12 +324,17 @@
       <button id="btn-export">Export</button>
       <button id="btn-import">Import</button>
     </div>
+    <div id="cloud-status" style="font-size:11px;color:#999;">Cloud: connecting...</div>
   </div>
 
   <div id="grid-container">
+    <div id="video-toggle" style="position:absolute; top:10px; right:10px; z-index:6; display:flex; gap:4px;">
+      <button class="vid-src-btn active" data-src="reference-browser.mp4" style="background:#e94560; border:1px solid #e94560; color:#eee; font-family:monospace; font-size:11px; padding:4px 10px; border-radius:4px; cursor:pointer;">ZB1</button>
+      <button class="vid-src-btn" data-src="dkdc-browser.mp4" style="background:none; border:1px solid #e94560; color:#e94560; font-family:monospace; font-size:11px; padding:4px 10px; border-radius:4px; cursor:pointer;">DKDC</button>
+    </div>
     <div id="video-placeholder" style="position:absolute; top:10px; left:50%; transform:translateX(-50%); width:60%; aspect-ratio:16/9; border:1px solid #0f3460; border-radius:8px; overflow:hidden; z-index:5;">
-        <video id="ref-video" preload="auto" style="display:block; width:100%; height:100%; object-fit:contain;">
-          <source src="reference.mp4" type="video/mp4">
+        <video id="ref-video" muted preload="auto" style="display:block; width:100%; height:100%; object-fit:contain;">
+          <source src="reference-browser.mp4" type="video/mp4">
         </video>
     </div>
     <canvas id="canvas"></canvas>
@@ -356,6 +361,8 @@
   </div>
 </div>
 
+<script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-database-compat.js"></script>
 <script>
 // ========================================================================
 //  IconikStorage (inlined from storage.js)
@@ -411,9 +418,22 @@ const COLORS = [
   '#e94560','#3498db','#2ecc71','#f39c12','#9b59b6',
   '#1abc9c','#e67e22','#e74c3c','#00bcd4'
 ];
+
+const MEMBERS = [
+  { idol: 'HANBIN',   member: 'Jordan' },
+  { idol: 'JIWOONG',  member: 'Caroline' },
+  { idol: 'MATTHEW',  member: 'Bela' },
+  { idol: 'TAERAE',   member: 'Gauri' },
+  { idol: 'GUNWOOK',  member: 'Dani' },
+  { idol: 'ZHANGHAO', member: 'Natalie' },
+  { idol: 'RICKY',    member: 'Imene' },
+  { idol: 'GYUVIN',   member: 'Cristian' },
+  { idol: 'YUJIN',    member: 'Lauren' },
+];
+
 const VISIBLE_WINDOW = 15; // +/- 15 seconds from center = 30 seconds total visible
 
-let dots = [];          // { id, gx, gy, color, name }
+let dots = [];          // { id, gx, gy, color, name, idol, member }
 let snapshots = [];     // { name, timestamp, dots: [...] }
 let markers = [];       // sorted array of seconds (formation boundaries)
 let formationCounter = 0;
@@ -421,6 +441,11 @@ let formationCounter = 0;
 let currentTime = 0;    // shared timeline time in seconds
 let playing = false;
 let lastFrameTime = null;
+
+const VIDEO_SYNC = {
+  'reference-browser.mp4': { offset: 0.35 },
+  'dkdc-browser.mp4': { offset: 0.35 }
+};
 
 // Audio element
 const audio = new Audio('iconik.mp3');
@@ -454,30 +479,137 @@ function lerp(a, b, t) {
 // ========================================================================
 //  Persistence
 // ========================================================================
-function autoSave() {
-  IconikStorage.save('app', {
-    dots: dots.map(d => ({ id: d.id, gx: d.gx, gy: d.gy, color: d.color, name: d.name })),
-    snapshots,
-    markers,
+const firebaseConfig = {
+  apiKey: 'AIzaSyAZCog1B2inZSq-bWBhiixq4yQrLA19hOY',
+  authDomain: 'iconik-app.firebaseapp.com',
+  databaseURL: 'https://iconik-app-default-rtdb.firebaseio.com',
+  projectId: 'iconik-app',
+  storageBucket: 'iconik-app.firebasestorage.app',
+  messagingSenderId: '320703532118',
+  appId: '1:320703532118:web:2877c7b51b11ed7b6f3ff7'
+};
+
+let cloudRef = null;
+let cloudSaveTimer = null;
+
+function setCloudStatus(text, isError) {
+  const el = document.getElementById('cloud-status');
+  if (!el) return;
+  el.textContent = 'Cloud: ' + text;
+  el.style.color = isError ? '#e94560' : '#999';
+}
+
+function memberForDot(id) {
+  return MEMBERS[(id || 1) - 1] || MEMBERS[0];
+}
+
+function normalizeDot(d, index) {
+  const id = d && d.id ? d.id : index + 1;
+  const member = memberForDot(id);
+  const name = d && d.name ? d.name : member.idol;
+  return {
+    id,
+    gx: d && Number.isFinite(d.gx) ? d.gx : 0,
+    gy: d && Number.isFinite(d.gy) ? d.gy : 0,
+    color: (d && d.color) || COLORS[(id - 1) % COLORS.length],
+    name,
+    idol: (d && d.idol) || member.idol,
+    member: (d && d.member) || member.member
+  };
+}
+
+function normalizeDots(source) {
+  return (source || []).map(normalizeDot);
+}
+
+function getAppState() {
+  return {
+    dots: dots.map((d, i) => normalizeDot(d, i)),
+    snapshots: snapshots.map(snap => ({
+      ...snap,
+      dots: normalizeDots(snap.dots)
+    })),
+    markers: markers.slice().sort((a, b) => a - b),
     formationCounter
-  });
+  };
+}
+
+function applyAppState(data) {
+  if (!data) return;
+  if (data.dots && data.dots.length === 9) dots = normalizeDots(data.dots);
+  if (data.snapshots) {
+    snapshots = data.snapshots.map(snap => ({
+      ...snap,
+      dots: normalizeDots(snap.dots)
+    }));
+  }
+  if (data.markers) {
+    markers = data.markers.slice().sort((a, b) => a - b);
+  }
+  if (Number.isFinite(data.formationCounter)) formationCounter = data.formationCounter;
+}
+
+function hasMeaningfulState(state) {
+  return !!state && (
+    (state.markers && state.markers.length > 0) ||
+    (state.snapshots && state.snapshots.length > 0) ||
+    state.formationCounter > 0
+  );
+}
+
+function autoSave() {
+  const state = getAppState();
+  IconikStorage.save('app', state);
+  queueCloudSave(state);
 }
 
 function autoRestore() {
   const data = IconikStorage.load('app');
-  if (data) {
-    if (data.dots && data.dots.length === 9) {
-      dots = data.dots.map(d => ({
-        id: d.id,
-        gx: d.gx,
-        gy: d.gy,
-        color: d.color || COLORS[(d.id - 1) % COLORS.length],
-        name: d.name || ''
-      }));
+  if (data) applyAppState(data);
+}
+
+function queueCloudSave(state) {
+  if (!cloudRef) return;
+  clearTimeout(cloudSaveTimer);
+  cloudSaveTimer = setTimeout(() => saveToCloud(state), 500);
+}
+
+async function saveToCloud(state) {
+  if (!cloudRef) return;
+  try {
+    setCloudStatus('saving...');
+    await cloudRef.set({
+      data: state || getAppState(),
+      updatedAt: Date.now()
+    });
+    setCloudStatus('saved ' + new Date().toLocaleTimeString());
+  } catch (e) {
+    console.warn('Cloud save failed:', e);
+    setCloudStatus('save failed', true);
+  }
+}
+
+async function startCloudSync() {
+  if (!window.firebase || !firebase.apps) {
+    setCloudStatus('offline', true);
+    return;
+  }
+
+  try {
+    firebase.initializeApp(firebaseConfig);
+    cloudRef = firebase.database().ref('backups/default');
+    setCloudStatus('connected');
+
+    const localState = getAppState();
+    const snap = await cloudRef.get();
+    if (hasMeaningfulState(localState) || !snap.exists()) {
+      await saveToCloud(localState);
+    } else if (snap.exists()) {
+      setCloudStatus('backup available');
     }
-    if (data.snapshots) snapshots = data.snapshots;
-    if (data.markers) { markers = data.markers; markers.sort((a, b) => a - b); }
-    if (data.formationCounter) formationCounter = data.formationCounter;
+  } catch (e) {
+    console.warn('Cloud sync unavailable:', e);
+    setCloudStatus('unavailable', true);
   }
 }
 
@@ -510,7 +642,9 @@ function initTriangle() {
     gx: pos.gx,
     gy: pos.gy,
     color: COLORS[i],
-    name: ''
+    name: MEMBERS[i].idol,
+    idol: MEMBERS[i].idol,
+    member: MEMBERS[i].member,
   }));
 }
 
@@ -790,17 +924,30 @@ function renderDotsList() {
     const swatch = document.createElement('div');
     swatch.className = 'dot-swatch';
     swatch.style.background = dot.color || '#e94560';
-    const input = document.createElement('input');
-    input.type = 'text';
-    input.value = dot.name || '';
-    input.placeholder = 'Dot ' + dot.id;
-    input.addEventListener('input', () => {
-      dot.name = input.value;
+
+    const idolBtn = document.createElement('button');
+    idolBtn.className = 'dot-name-btn' + (dot.name === dot.idol ? ' active' : '');
+    idolBtn.textContent = dot.idol;
+    idolBtn.addEventListener('click', () => {
+      dot.name = dot.idol;
       drawGrid();
+      renderDotsList();
       autoSave();
     });
+
+    const memberBtn = document.createElement('button');
+    memberBtn.className = 'dot-name-btn' + (dot.name === dot.member ? ' active' : '');
+    memberBtn.textContent = dot.member;
+    memberBtn.addEventListener('click', () => {
+      dot.name = dot.member;
+      drawGrid();
+      renderDotsList();
+      autoSave();
+    });
+
     el.appendChild(swatch);
-    el.appendChild(input);
+    el.appendChild(idolBtn);
+    el.appendChild(memberBtn);
     list.appendChild(el);
   }
 }
@@ -850,19 +997,13 @@ function renderSnapshots() {
 //  Export / Import
 // ========================================================================
 document.getElementById('btn-export').addEventListener('click', () => {
-  IconikStorage.exportJSON('app', {
-    dots: dots.map(d => ({ id: d.id, gx: d.gx, gy: d.gy, color: d.color, name: d.name })),
-    snapshots, markers, formationCounter
-  });
+  IconikStorage.exportJSON('app', getAppState());
 });
 
 document.getElementById('btn-import').addEventListener('click', async () => {
   try {
     const data = await IconikStorage.importJSON();
-    if (data.dots && data.dots.length === 9) dots = data.dots;
-    if (data.snapshots) snapshots = data.snapshots;
-    if (data.markers) { markers = data.markers; markers.sort((a, b) => a - b); }
-    if (data.formationCounter) formationCounter = data.formationCounter;
+    applyAppState(data);
     drawGrid();
     renderDotsList();
     renderSnapshots();
@@ -944,13 +1085,17 @@ function setPlaying(state) {
     lastFrameTime = performance.now();
     playBtn.innerHTML = '&#9646;&#9646;';
     tlPlayBtn.innerHTML = '&#9646;&#9646; Pause';
+    syncVideoToClock(true);
     if (audioLoaded && audio.paused) audio.play();
     if (vid && vid.readyState >= 2 && vid.paused && vid.currentTime < vid.duration) vid.play();
   } else {
     playBtn.innerHTML = '&#9654;';
     tlPlayBtn.innerHTML = '&#9654; Play';
     if (audioLoaded && !audio.paused) audio.pause();
-    if (vid && !vid.paused) vid.pause();
+    if (vid) {
+      vid.playbackRate = 1;
+      if (!vid.paused) vid.pause();
+    }
   }
 }
 
@@ -962,8 +1107,45 @@ function syncTimeToAll(t) {
   }
   const vid = document.getElementById('ref-video');
   if (vid && isFinite(vid.duration)) {
-    vid.currentTime = Math.min(t, vid.duration);
+    vid.currentTime = getVideoTargetTime(vid);
+    vid.playbackRate = 1;
   }
+}
+
+function getVideoSourceName(vid) {
+  const source = vid && vid.querySelector('source');
+  if (!source) return '';
+  return (source.getAttribute('src') || '').split('/').pop();
+}
+
+function getVideoOffset(vid) {
+  const meta = VIDEO_SYNC[getVideoSourceName(vid)];
+  return meta ? meta.offset : 0;
+}
+
+function getVideoTargetTime(vid) {
+  if (!vid || !isFinite(vid.duration)) return currentTime;
+  return Math.max(0, Math.min(currentTime + getVideoOffset(vid), vid.duration));
+}
+
+function syncVideoToClock(force) {
+  const vid = document.getElementById('ref-video');
+  if (!vid || !isFinite(vid.duration)) return;
+
+  const target = getVideoTargetTime(vid);
+  const drift = target - vid.currentTime;
+  if (force || Math.abs(drift) > 1) {
+    vid.currentTime = target;
+    vid.playbackRate = 1;
+    return;
+  }
+
+  if (Math.abs(drift) < 0.08) {
+    vid.playbackRate = 1;
+    return;
+  }
+
+  vid.playbackRate = Math.max(0.85, Math.min(1.15, 1 + drift * 0.25));
 }
 
 // ========================================================================
@@ -1368,8 +1550,6 @@ function syncTimeToAll(t) {
 
   // ===== Main animation tick =====
   function tick(now) {
-    const vid = document.getElementById('ref-video');
-
     // Advance time
     if (playing) {
       if (audioLoaded) {
@@ -1381,13 +1561,7 @@ function syncTimeToAll(t) {
         }
         lastFrameTime = now;
       }
-      // Keep video in sync with currentTime during playback
-      if (vid && isFinite(vid.duration)) {
-        const drift = Math.abs(vid.currentTime - currentTime);
-        if (drift > 0.3) {
-          vid.currentTime = Math.min(currentTime, vid.duration);
-        }
-      }
+      syncVideoToClock(false);
     } else {
       lastFrameTime = null;
       if (audioLoaded) {
@@ -1496,10 +1670,30 @@ function animateDots() {
 initTriangle();
 autoRestore();
 
+// Column toggle buttons (Idol / Member)
+document.getElementById('btn-all-idol').addEventListener('click', () => {
+  dots.forEach(d => { d.name = d.idol; });
+  drawGrid();
+  renderDotsList();
+  autoSave();
+  document.getElementById('btn-all-idol').classList.add('active');
+  document.getElementById('btn-all-member').classList.remove('active');
+});
+document.getElementById('btn-all-member').addEventListener('click', () => {
+  dots.forEach(d => { d.name = d.member; });
+  drawGrid();
+  renderDotsList();
+  autoSave();
+  document.getElementById('btn-all-member').classList.add('active');
+  document.getElementById('btn-all-idol').classList.remove('active');
+});
+
 window.addEventListener('resize', resizeGrid);
 resizeGrid();
 renderDotsList();
 renderSnapshots();
+autoSave();
+startCloudSync();
 </script>
 
 <!-- Video ended handler (synced with audio + timeline) -->
@@ -1507,12 +1701,46 @@ renderSnapshots();
 (function() {
   const vid = document.getElementById('ref-video');
 
+  vid.addEventListener('loadedmetadata', () => {
+    syncVideoToClock(true);
+  });
+
   // When video ends on its own, pause everything if audio is also done
   vid.addEventListener('ended', () => {
     const audioDone = !audioLoaded || audio.ended || audio.currentTime >= audio.duration;
     if (audioDone) {
       setPlaying(false);
     }
+  });
+})();
+</script>
+
+<!-- Video source toggle -->
+<script>
+(function() {
+  const btns = document.querySelectorAll('.vid-src-btn');
+  const vid = document.getElementById('ref-video');
+  btns.forEach(btn => {
+    btn.addEventListener('click', () => {
+      const src = btn.dataset.src;
+      if (vid.querySelector('source').src.endsWith(src)) return;
+      const shouldResume = playing;
+      vid.querySelector('source').src = src;
+      vid.playbackRate = 1;
+      vid.load();
+      if (isFinite(vid.duration)) {
+        vid.currentTime = getVideoTargetTime(vid);
+      }
+      if (shouldResume) vid.play();
+      btns.forEach(b => {
+        b.style.background = 'none';
+        b.style.color = '#e94560';
+        b.classList.remove('active');
+      });
+      btn.style.background = '#e94560';
+      btn.style.color = '#eee';
+      btn.classList.add('active');
+    });
   });
 })();
 </script>
