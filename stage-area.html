@@ -50,16 +50,16 @@ function draw() {
   const unitX = unit;
 
   // Dark fill (extends 1 unit beyond border on each side)
-  ctx.fillStyle = '#1e1e38';
+  ctx.fillStyle = '#2d2d44';
   ctx.fillRect(left - unit, top, sw + unit * 2, sh);
 
   // Outer columns (2 on each side) slightly lighter
-  ctx.fillStyle = '#3d3d5c';
+  ctx.fillStyle = '#3f3f55';
   ctx.fillRect(left - unit, top, unit * 2, sh);           // left 2 columns
   ctx.fillRect(left + sw - unit, top, unit * 2, sh);      // right 2 columns
 
   // Fine grid lines (every 1 unit)
-  ctx.strokeStyle = '#6e6e6e';
+  ctx.strokeStyle = '#505065';
   ctx.lineWidth = 1;
 
   // Vertical grid lines (9 columns each side, extra 1 beyond border)
