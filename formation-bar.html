@@ -660,7 +660,7 @@
       // Markers must stay above 0 (they are boundaries after time 0)
       if (newTime < 0.1) newTime = 0.1;
 
-      markers[draggingMarkerIndex] = Math.round(newTime * 10) / 10; // snap to 0.1s
+      markers[draggingMarkerIndex] = newTime;
       render();
       return;
     }
@@ -671,9 +671,8 @@
 
   window.addEventListener('mouseup', () => {
     if (draggingMarkerIndex >= 0) {
-      // Finalize: snap to nearest integer second and re-sort
-      markers[draggingMarkerIndex] = Math.round(markers[draggingMarkerIndex]);
-      if (markers[draggingMarkerIndex] < 1) markers[draggingMarkerIndex] = 1;
+      // Finalize: re-sort markers
+      if (markers[draggingMarkerIndex] < 0.1) markers[draggingMarkerIndex] = 0.1;
       markers.sort((a, b) => a - b);
       draggingMarkerIndex = -1;
       canvas.style.cursor = '';
