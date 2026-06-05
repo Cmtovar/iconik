@@ -36,25 +36,18 @@ function draw() {
   const stageW = W - marginX * 2;
   const stageH = H - marginY * 2 - 30; // reserve 30px for axis labels
 
-  // Fit to 16:10 aspect within available space
-  const targetAspect = 16 / 9;
-  let sw, sh;
-  if (stageW / stageH > targetAspect) {
-    sh = stageH;
-    sw = sh * targetAspect;
-  } else {
-    sw = stageW;
-    sh = sw / targetAspect;
-  }
+  // 16 wide x 10 tall, square cells
+  const maxUnitW = stageW / 16;
+  const maxUnitH = stageH / 10;
+  const unit = Math.min(maxUnitW, maxUnitH);
+  const sw = unit * 16;
+  const sh = unit * 10;
 
   const left = (W - sw) / 2;
-  const top = (H - sh - 20) / 2; // shift up slightly for axis labels
+  const top = (H - sh - 20) / 2;
   const cx = left + sw / 2;
   const cy = top + sh / 2;
-
-  // Unit size: 8 units each side = 16 units across
-  const unitX = sw / 16;
-  const unitY = sh / 10; // ~5 units each side vertically
+  const unitX = unit;
 
   // Dark fill inside the stage border
   ctx.fillStyle = '#1e1e38';
@@ -64,26 +57,22 @@ function draw() {
   ctx.strokeStyle = '#4a4a70';
   ctx.lineWidth = 1;
 
-  // Vertical grid lines
-  for (let i = -8; i <= 8; i++) {
-    const x = cx + i * unitX;
+  // Vertical grid lines (9 columns each side, extra 1 beyond border)
+  for (let i = -9; i <= 9; i++) {
+    const x = cx + i * unit;
     ctx.beginPath();
     ctx.moveTo(x, top);
     ctx.lineTo(x, top + sh);
     ctx.stroke();
   }
 
-  // Horizontal grid lines
-  const vUnits = Math.floor(sh / unitX); // use same scale as horizontal
-  const halfV = Math.floor(vUnits / 2);
-  for (let i = -halfV; i <= halfV; i++) {
-    const y = cy + i * unitX;
-    if (y >= top && y <= top + sh) {
-      ctx.beginPath();
-      ctx.moveTo(left, y);
-      ctx.lineTo(left + sw, y);
-      ctx.stroke();
-    }
+  // Horizontal grid lines (5 above, 5 below center = 10 rows)
+  for (let i = -5; i <= 5; i++) {
+    const y = cy + i * unit;
+    ctx.beginPath();
+    ctx.moveTo(left, y);
+    ctx.lineTo(left + sw, y);
+    ctx.stroke();
   }
 
 
