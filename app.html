@@ -319,7 +319,7 @@
     </div>
     <div id="dots-list"></div>
 
-    <button id="btn-save">Save Formation</button>
+    <button id="btn-save">Save Positions</button>
 
     <h2>Formations</h2>
     <div id="snapshots-list"></div>
@@ -1038,16 +1038,22 @@ function renderDotsList() {
 }
 
 // ========================================================================
-//  Sidebar: Snapshots (Formations)
+//  Sidebar: Formations (driven by timeline markers)
 // ========================================================================
+
+// Save current dot positions to the active in-place formation
 document.getElementById('btn-save').addEventListener('click', () => {
-  formationCounter++;
-  const snap = {
-    name: 'Formation ' + formationCounter,
-    timestamp: new Date().toLocaleString(),
-    dots: dots.map(d => ({ ...d }))
-  };
-  snapshots.push(snap);
+  const formations = window._getFormations ? window._getFormations() : [];
+  const cur = window._getCurrentFormation ? window._getCurrentFormation(formations, currentTime) : null;
+  if (!cur || cur.type !== 'inplace') return;
+
+  const idx = Math.floor(cur.number / 2); // Formation 1->0, 3->1, 5->2
+  // Grow snapshots array if needed
+  while (snapshots.length <= idx) {
+    snapshots.push({ name: 'Formation ' + (snapshots.length + 1), dots: null });
+  }
+  snapshots[idx].dots = dots.map(d => ({ ...d }));
+  snapshots[idx].timestamp = new Date().toLocaleString();
   renderSnapshots();
   autoSave();
 });
@@ -1055,19 +1061,36 @@ document.getElementById('btn-save').addEventListener('click', () => {
 function renderSnapshots() {
   const list = document.getElementById('snapshots-list');
   list.innerHTML = '';
-  snapshots.forEach((snap, i) => {
+
+  const formations = window._getFormations ? window._getFormations() : [];
+  const inPlaceFormations = formations.filter(f => f.type === 'inplace');
+
+  // Ensure snapshots array matches the number of in-place formations
+  while (snapshots.length < inPlaceFormations.length) {
+    snapshots.push({ name: 'Formation ' + (snapshots.length + 1), dots: null });
+  }
+
+  const curFormation = window._getCurrentFormation ? window._getCurrentFormation(formations, currentTime) : null;
+
+  inPlaceFormations.forEach((f, i) => {
+    const snap = snapshots[i];
+    const isCurrent = curFormation && curFormation.number === f.number;
+    const hasDots = snap && snap.dots && snap.dots.length > 0;
+
     const el = document.createElement('div');
     el.className = 'snapshot';
+    if (isCurrent) el.style.borderColor = '#e94560';
 
     const title = document.createElement('div');
     title.className = 'snap-title';
-    title.textContent = snap.name;
+    title.textContent = (snap && snap.name) || ('Formation ' + (i + 1));
+    if (!hasDots) title.textContent += ' (empty)';
     title.title = 'Double-click to rename';
     title.addEventListener('dblclick', (e) => {
       e.stopPropagation();
       const input = document.createElement('input');
       input.type = 'text';
-      input.value = snap.name;
+      input.value = snap.name || ('Formation ' + (i + 1));
       input.style.cssText = 'width:100%;background:#16213e;border:1px solid #e94560;color:#eee;font-family:monospace;font-size:12px;padding:2px 4px;border-radius:3px;';
       const finish = () => {
         const val = input.value.trim();
@@ -1084,30 +1107,38 @@ function renderSnapshots() {
 
     const info = document.createElement('div');
     info.className = 'snap-info';
-    info.textContent = snap.timestamp;
-
-    const deleteBtn = document.createElement('button');
-    deleteBtn.className = 'snap-delete';
-    deleteBtn.innerHTML = '&times;';
-    deleteBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      snapshots.splice(i, 1);
-      renderSnapshots();
-      autoSave();
-    });
+    info.textContent = fmt(f.startTime) + (f.endTime !== null ? ' – ' + fmt(f.endTime) : '+');
 
     el.appendChild(title);
     el.appendChild(info);
-    el.appendChild(deleteBtn);
-    el.addEventListener('click', (e) => {
-      if (e.target.classList.contains('snap-delete')) return;
-      dots = snap.dots.map(d => ({ ...d }));
-      drawGrid();
-      renderDotsList();
-      autoSave();
+
+    // Click to seek to this formation and load its dots
+    el.addEventListener('click', () => {
+      seekTo(f.startTime + 0.1);
+      if (hasDots) {
+        dots = snap.dots.map(d => ({ ...d }));
+        drawGrid();
+        renderDotsList();
+      }
+      renderSnapshots();
     });
+
     list.appendChild(el);
   });
+}
+
+// Lightweight: just update which formation is highlighted (called every frame)
+function updateActiveFormation() {
+  const list = document.getElementById('snapshots-list');
+  if (!list) return;
+  const formations = window._getFormations ? window._getFormations() : [];
+  const cur = window._getCurrentFormation ? window._getCurrentFormation(formations, currentTime) : null;
+  const inPlaceFormations = formations.filter(f => f.type === 'inplace');
+  const items = list.children;
+  for (let i = 0; i < items.length; i++) {
+    const isCurrent = cur && inPlaceFormations[i] && cur.number === inPlaceFormations[i].number;
+    items[i].style.borderColor = isCurrent ? '#e94560' : '';
+  }
 }
 
 // ========================================================================
@@ -1366,6 +1397,7 @@ function updateOffsetDisplay() {
     markerMin.value = '';
     markerSec.value = '';
     markerMin.focus();
+    renderSnapshots();
     autoSave();
   }
 
@@ -1384,6 +1416,17 @@ function updateOffsetDisplay() {
   });
   markerMin.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') addMarker();
+  });
+
+  // Right-click on timeline to delete nearest marker
+  tlCanvas.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    const idx = findNearbyMarker(e.clientX);
+    if (idx >= 0) {
+      markers.splice(idx, 1);
+      renderSnapshots();
+      autoSave();
+    }
   });
 
   // Play/Pause (synced)
@@ -1743,6 +1786,7 @@ function updateOffsetDisplay() {
     updateInfo();
     updateScrollbar();
     if (window._audioUpdateUI) window._audioUpdateUI();
+    updateActiveFormation();
 
     requestAnimationFrame(tick);
   }
@@ -1866,6 +1910,7 @@ document.getElementById('btn-all-member').addEventListener('click', () => {
   document.getElementById('btn-all-member').classList.add('active');
   document.getElementById('btn-all-idol').classList.remove('active');
 });
+
 
 window.addEventListener('resize', resizeGrid);
 resizeGrid();
