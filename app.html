@@ -441,6 +441,8 @@ let formationCounter = 0;
 let currentTime = 0;    // shared timeline time in seconds
 let playing = false;
 let lastFrameTime = null;
+let activePlayPromise = null;
+let isExplicitSeek = false;
 
 const VIDEO_SYNC = {
   'reference-browser.mp4': { offset: 0.35 },
@@ -1031,13 +1033,7 @@ document.getElementById('btn-import').addEventListener('click', async () => {
 
   // Play / Pause (synced with timeline)
   playBtn.addEventListener('click', () => {
-    if (audio.paused) {
-      audio.play();
-      setPlaying(true);
-    } else {
-      audio.pause();
-      setPlaying(false);
-    }
+    setPlaying(!playing);
   });
 
   audio.addEventListener('ended', () => {
@@ -1054,8 +1050,8 @@ document.getElementById('btn-import').addEventListener('click', async () => {
   function seekAudio(e) {
     const rect = scrubWrap.getBoundingClientRect();
     const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-    const t = ratio * audio.duration;
-    syncTimeToAll(t);
+    const t = ratio * getPlaybackDuration();
+    seekPlayback(t);
     updateAudioUI();
   }
 
@@ -1064,6 +1060,7 @@ document.getElementById('btn-import').addEventListener('click', async () => {
   document.addEventListener('mouseup', () => { scrubDragging = false; });
 
   audio.addEventListener('timeupdate', () => {
+    if (isExplicitSeek) return;
     currentTime = audio.currentTime;
     updateAudioUI();
   });
@@ -1077,6 +1074,9 @@ document.getElementById('btn-import').addEventListener('click', async () => {
 //  Sync: shared play/pause
 // ========================================================================
 function setPlaying(state) {
+  if (playing === state) {
+    return;
+  }
   playing = state;
   const playBtn = document.getElementById('play-btn');
   const tlPlayBtn = document.getElementById('tl-play-btn');
@@ -1086,11 +1086,20 @@ function setPlaying(state) {
     playBtn.innerHTML = '&#9646;&#9646;';
     tlPlayBtn.innerHTML = '&#9646;&#9646; Pause';
     syncVideoToClock(true);
-    if (audioLoaded && audio.paused) audio.play();
-    if (vid && vid.readyState >= 2 && vid.paused && vid.currentTime < vid.duration) vid.play();
+    if (audioLoaded && audio.paused) {
+      activePlayPromise = audio.play();
+      if (activePlayPromise && typeof activePlayPromise.catch === 'function') {
+        activePlayPromise.catch(() => setPlaying(false));
+      }
+    }
+    if (vid && vid.readyState >= 2 && vid.paused && vid.currentTime < vid.duration) {
+      const videoPlay = vid.play();
+      if (videoPlay && typeof videoPlay.catch === 'function') videoPlay.catch(() => {});
+    }
   } else {
     playBtn.innerHTML = '&#9654;';
     tlPlayBtn.innerHTML = '&#9654; Play';
+    activePlayPromise = null;
     if (audioLoaded && !audio.paused) audio.pause();
     if (vid) {
       vid.playbackRate = 1;
@@ -1099,17 +1108,40 @@ function setPlaying(state) {
   }
 }
 
-// Sync currentTime to all media elements (audio + video)
-function syncTimeToAll(t) {
-  currentTime = t;
+function getPlaybackDuration() {
+  if (audioLoaded && isFinite(audio.duration)) return audio.duration;
+  const vid = document.getElementById('ref-video');
+  if (vid && isFinite(vid.duration)) return vid.duration;
+  return Math.max(60, currentTime);
+}
+
+function clampPlaybackTime(t) {
+  const duration = getPlaybackDuration();
+  const max = isFinite(duration) ? duration : Math.max(60, t);
+  return Math.max(0, Math.min(t, max));
+}
+
+function getClockTime() {
+  if (audioLoaded && isFinite(audio.duration)) return audio.currentTime;
+  return currentTime;
+}
+
+// Explicit user seeks are the only place that hard-seeks every media element.
+function seekPlayback(t) {
+  currentTime = clampPlaybackTime(t);
+  isExplicitSeek = true;
   if (audioLoaded && isFinite(audio.duration)) {
-    audio.currentTime = Math.min(t, audio.duration);
+    const audioTarget = Math.min(currentTime, audio.duration);
+    if (Math.abs(audio.currentTime - audioTarget) > 0.005) {
+      audio.currentTime = audioTarget;
+    }
   }
   const vid = document.getElementById('ref-video');
   if (vid && isFinite(vid.duration)) {
     vid.currentTime = getVideoTargetTime(vid);
     vid.playbackRate = 1;
   }
+  isExplicitSeek = false;
 }
 
 function getVideoSourceName(vid) {
@@ -1233,17 +1265,7 @@ function syncVideoToClock(force) {
 
   // Play/Pause (synced)
   tlPlayBtn.addEventListener('click', () => {
-    if (audioLoaded) {
-      if (audio.paused) {
-        audio.play();
-        setPlaying(true);
-      } else {
-        audio.pause();
-        setPlaying(false);
-      }
-    } else {
-      setPlaying(!playing);
-    }
+    setPlaying(!playing);
   });
 
   // Resize timeline canvas
@@ -1422,6 +1444,7 @@ function syncVideoToClock(force) {
 
   // ---- Scrollbar ----
   const scrollbar = document.getElementById('timelineScrollbar');
+  let scrollbarSeeking = false;
 
   function getMaxScrollTime() {
     const lastMarker = markers.length > 0 ? markers[markers.length - 1] : 0;
@@ -1431,26 +1454,36 @@ function syncVideoToClock(force) {
   function updateScrollbar() {
     const maxTime = getMaxScrollTime();
     scrollbar.max = maxTime;
-    scrollbar.value = currentTime;
+    const nextValue = String(Math.min(currentTime, maxTime));
+    if (scrollbar.value !== nextValue && !scrollbarSeeking) {
+      scrollbar.value = nextValue;
+    }
   }
 
   scrollbar.addEventListener('input', () => {
-    syncTimeToAll(parseFloat(scrollbar.value));
+    scrollbarSeeking = true;
+    seekPlayback(parseFloat(scrollbar.value));
   });
+  scrollbar.addEventListener('mousedown', () => { scrollbarSeeking = true; });
+  scrollbar.addEventListener('touchstart', () => { scrollbarSeeking = true; });
+  window.addEventListener('mouseup', () => { scrollbarSeeking = false; });
+  window.addEventListener('touchend', () => { scrollbarSeeking = false; });
 
   // ---- Mouse wheel panning on timeline canvas ----
   tlCanvas.addEventListener('wheel', (e) => {
     e.preventDefault();
     const delta = e.deltaX !== 0 ? e.deltaX : e.deltaY;
     const panAmount = delta * 0.05;
-    syncTimeToAll(Math.max(0, currentTime + panAmount));
+    seekPlayback(currentTime + panAmount);
   }, { passive: false });
 
   // ---- Drag timeline to seek ----
   let draggingTimeline = false;
+  let timelineSeekCenter = 0;
 
   // ---- Drag marker boundaries ----
   let draggingMarkerIndex = -1;
+  let markerDragCenter = 0;
   const MARKER_GRAB_PX = 8;
 
   function findNearbyMarker(clientX) {
@@ -1470,13 +1503,13 @@ function syncVideoToClock(force) {
     return bestIdx;
   }
 
-  function seekToX(clientX) {
+  function seekToX(clientX, centerTime) {
     const rect = tlCanvas.getBoundingClientRect();
     const clickX = clientX - rect.left;
     const w = rect.width;
-    const t = xToTime(clickX, currentTime, w);
+    const t = xToTime(clickX, centerTime, w);
     if (t >= 0) {
-      syncTimeToAll(t);
+      seekPlayback(t);
       // Update the min/sec inputs to show current time for easy "Add Marker"
       const m = Math.floor(currentTime / 60);
       const s = Math.floor(currentTime % 60);
@@ -1498,13 +1531,15 @@ function syncVideoToClock(force) {
     const idx = findNearbyMarker(e.clientX);
     if (idx >= 0) {
       draggingMarkerIndex = idx;
+      markerDragCenter = currentTime;
       tlCanvas.style.cursor = 'col-resize';
       e.preventDefault();
       return;
     }
     // Otherwise, normal timeline seek drag
     draggingTimeline = true;
-    seekToX(e.clientX);
+    timelineSeekCenter = currentTime;
+    seekToX(e.clientX, timelineSeekCenter);
   });
 
   window.addEventListener('mousemove', (e) => {
@@ -1512,7 +1547,7 @@ function syncVideoToClock(force) {
       const rect = tlCanvas.getBoundingClientRect();
       const w = rect.width;
       const mouseX = e.clientX - rect.left;
-      let newTime = xToTime(mouseX, currentTime, w);
+      let newTime = xToTime(mouseX, markerDragCenter, w);
 
       if (newTime < 0) newTime = 0;
 
@@ -1532,7 +1567,7 @@ function syncVideoToClock(force) {
       return;
     }
     if (draggingTimeline) {
-      seekToX(e.clientX);
+      seekToX(e.clientX, timelineSeekCenter);
     }
   });
 
@@ -1542,10 +1577,12 @@ function syncVideoToClock(force) {
       if (markers[draggingMarkerIndex] < 1) markers[draggingMarkerIndex] = 1;
       markers.sort((a, b) => a - b);
       draggingMarkerIndex = -1;
+      markerDragCenter = 0;
       tlCanvas.style.cursor = '';
       autoSave();
     }
     draggingTimeline = false;
+    timelineSeekCenter = 0;
   });
 
   // ===== Main animation tick =====
@@ -1553,7 +1590,7 @@ function syncVideoToClock(force) {
     // Advance time
     if (playing) {
       if (audioLoaded) {
-        currentTime = audio.currentTime;
+        currentTime = getClockTime();
       } else {
         if (lastFrameTime !== null) {
           const dt = (now - lastFrameTime) / 1000;
@@ -1565,7 +1602,7 @@ function syncVideoToClock(force) {
     } else {
       lastFrameTime = null;
       if (audioLoaded) {
-        currentTime = audio.currentTime;
+        currentTime = getClockTime();
       }
     }
 
