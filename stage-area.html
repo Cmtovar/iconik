@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Stage Area</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #1a1a2e; overflow: hidden; height: 100vh; display: flex; align-items: center; justify-content: center; }
+  canvas { display: block; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+
+function resize() {
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+  draw();
+}
+window.addEventListener('resize', resize);
+
+function draw() {
+  const W = canvas.width, H = canvas.height;
+  ctx.clearRect(0, 0, W, H);
+
+  // Background
+  ctx.fillStyle = '#1a1a2e';
+  ctx.fillRect(0, 0, W, H);
+
+  // Stage dimensions
+  const marginX = 60, marginY = 50;
+  const stageW = W - marginX * 2;
+  const stageH = H - marginY * 2 - 30; // reserve 30px for axis labels
+
+  // Fit to 16:10 aspect within available space
+  const targetAspect = 16 / 9;
+  let sw, sh;
+  if (stageW / stageH > targetAspect) {
+    sh = stageH;
+    sw = sh * targetAspect;
+  } else {
+    sw = stageW;
+    sh = sw / targetAspect;
+  }
+
+  const left = (W - sw) / 2;
+  const top = (H - sh - 20) / 2; // shift up slightly for axis labels
+  const cx = left + sw / 2;
+  const cy = top + sh / 2;
+
+  // Unit size: 8 units each side = 16 units across
+  const unitX = sw / 16;
+  const unitY = sh / 10; // ~5 units each side vertically
+
+  // Alternating column bands (every 2 units, very subtle)
+  for (let i = -8; i < 8; i++) {
+    if (Math.floor((i + 8) / 2) % 2 === 0) {
+      const bx = cx + i * unitX;
+      ctx.fillStyle = 'rgba(40, 44, 75, 0.25)';
+      ctx.fillRect(bx, top, unitX, sh);
+    }
+  }
+
+  // Fine grid lines (every 1 unit)
+  ctx.strokeStyle = 'rgba(60, 65, 100, 0.3)';
+  ctx.lineWidth = 0.5;
+
+  // Vertical grid lines
+  for (let i = -8; i <= 8; i++) {
+    const x = cx + i * unitX;
+    ctx.beginPath();
+    ctx.moveTo(x, top);
+    ctx.lineTo(x, top + sh);
+    ctx.stroke();
+  }
+
+  // Horizontal grid lines
+  const vUnits = Math.floor(sh / unitX); // use same scale as horizontal
+  const halfV = Math.floor(vUnits / 2);
+  for (let i = -halfV; i <= halfV; i++) {
+    const y = cy + i * unitX;
+    if (y >= top && y <= top + sh) {
+      ctx.beginPath();
+      ctx.moveTo(left, y);
+      ctx.lineTo(left + sw, y);
+      ctx.stroke();
+    }
+  }
+
+  // Red crosshair (thin, within border)
+  ctx.strokeStyle = '#e94560';
+  ctx.lineWidth = 1;
+  // Vertical center line
+  ctx.beginPath();
+  ctx.moveTo(cx, top);
+  ctx.lineTo(cx, top + sh);
+  ctx.stroke();
+  // Horizontal center line
+  ctx.beginPath();
+  ctx.moveTo(left, cy);
+  ctx.lineTo(left + sw, cy);
+  ctx.stroke();
+
+  // Red border (rounded, coral-ish)
+  ctx.strokeStyle = '#e94560';
+  ctx.lineWidth = 2.5;
+  ctx.beginPath();
+  const r = 14;
+  ctx.moveTo(left + r, top);
+  ctx.lineTo(left + sw - r, top);
+  ctx.quadraticCurveTo(left + sw, top, left + sw, top + r);
+  ctx.lineTo(left + sw, top + sh - r);
+  ctx.quadraticCurveTo(left + sw, top + sh, left + sw - r, top + sh);
+  ctx.lineTo(left + r, top + sh);
+  ctx.quadraticCurveTo(left, top + sh, left, top + sh - r);
+  ctx.lineTo(left, top + r);
+  ctx.quadraticCurveTo(left, top, left + r, top);
+  ctx.closePath();
+  ctx.stroke();
+
+  // Axis labels at bottom
+  ctx.fillStyle = '#777';
+  ctx.font = '12px monospace';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  const labelY = top + sh + 10;
+  for (let i = -8; i <= 8; i++) {
+    ctx.fillText(Math.abs(i).toString(), cx + i * unitX, labelY);
+  }
+}
+
+resize();
+</script>
+</body>
+</html>
