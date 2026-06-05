@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Animation Demo</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #1a1a2e;
+    color: #eee;
+    font-family: monospace;
+    overflow: hidden;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+  #controls {
+    padding: 12px;
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  #controls button {
+    background: #0f3460;
+    border: 1px solid #e94560;
+    color: #eee;
+    font-family: monospace;
+    font-size: 14px;
+    padding: 8px 16px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background 0.2s;
+  }
+  #controls button:hover {
+    background: #e94560;
+  }
+  #canvas-wrap {
+    flex: 1;
+    position: relative;
+  }
+  canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+</style>
+</head>
+<body>
+<div id="controls">
+  <button onclick="playAtoB()">Play A &rarr; B</button>
+  <button onclick="playBtoA()">Play B &rarr; A</button>
+  <button onclick="resetToA()">Reset to A</button>
+  <button onclick="resetToB()">Reset to B</button>
+</div>
+<div id="canvas-wrap">
+  <canvas id="c"></canvas>
+</div>
+<script>
+const GRID = 30;
+const COLORS = [
+  '#e94560','#3498db','#2ecc71','#f39c12','#9b59b6',
+  '#1abc9c','#e67e22','#e74c3c','#00bcd4'
+];
+const DOT_RADIUS = 14;
+const DURATION = 2000; // ms
+
+// Formations in grid units
+const formationA = [
+  {x:15, y:5},
+  {x:12, y:8},  {x:18, y:8},
+  {x:9,  y:11}, {x:15, y:11}, {x:21, y:11},
+  {x:9,  y:14}, {x:15, y:14}, {x:21, y:14}
+];
+
+const formationB = [];
+for (let i = 0; i < 9; i++) {
+  formationB.push({x: 6 + i * 2, y: 10});
+}
+
+// Current positions (in grid units, floating point during animation)
+let positions = formationA.map(p => ({x: p.x, y: p.y}));
+
+let animating = false;
+let animStart = null;
+let animFrom = null;
+let animTo = null;
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+
+function resize() {
+  const wrap = document.getElementById('canvas-wrap');
+  canvas.width = wrap.clientWidth * devicePixelRatio;
+  canvas.height = wrap.clientHeight * devicePixelRatio;
+  canvas.style.width = wrap.clientWidth + 'px';
+  canvas.style.height = wrap.clientHeight + 'px';
+  draw();
+}
+window.addEventListener('resize', resize);
+
+function draw() {
+  const w = canvas.width;
+  const h = canvas.height;
+  const g = GRID * devicePixelRatio;
+  const r = DOT_RADIUS * devicePixelRatio;
+
+  ctx.fillStyle = '#1a1a2e';
+  ctx.fillRect(0, 0, w, h);
+
+  // Grid lines
+  ctx.strokeStyle = '#222244';
+  ctx.lineWidth = 1;
+  for (let x = 0; x < w; x += g) {
+    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke();
+  }
+  for (let y = 0; y < h; y += g) {
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
+  }
+
+  // Dots
+  for (let i = 0; i < 9; i++) {
+    const px = positions[i].x * g;
+    const py = positions[i].y * g;
+
+    // Filled circle
+    ctx.beginPath();
+    ctx.arc(px, py, r, 0, Math.PI * 2);
+    ctx.fillStyle = COLORS[i];
+    ctx.fill();
+
+    // White border
+    ctx.lineWidth = 2 * devicePixelRatio;
+    ctx.strokeStyle = '#ffffff';
+    ctx.stroke();
+
+    // ID label
+    ctx.fillStyle = '#ffffff';
+    ctx.font = `bold ${12 * devicePixelRatio}px monospace`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(String(i + 1), px, py);
+  }
+}
+
+function lerp(a, b, t) {
+  return a + (b - a) * t;
+}
+
+function animationLoop(timestamp) {
+  if (!animating) return;
+  if (animStart === null) animStart = timestamp;
+  let t = (timestamp - animStart) / DURATION;
+  if (t >= 1) {
+    t = 1;
+    animating = false;
+  }
+  for (let i = 0; i < 9; i++) {
+    positions[i].x = lerp(animFrom[i].x, animTo[i].x, t);
+    positions[i].y = lerp(animFrom[i].y, animTo[i].y, t);
+  }
+  draw();
+  if (animating) requestAnimationFrame(animationLoop);
+}
+
+function startAnimation(from, to) {
+  animFrom = from.map(p => ({x: p.x, y: p.y}));
+  animTo = to.map(p => ({x: p.x, y: p.y}));
+  animStart = null;
+  animating = true;
+  requestAnimationFrame(animationLoop);
+}
+
+function playAtoB() {
+  if (animating) return;
+  // Snap to A first, then animate to B
+  setPositions(formationA);
+  startAnimation(formationA, formationB);
+}
+
+function playBtoA() {
+  if (animating) return;
+  setPositions(formationB);
+  startAnimation(formationB, formationA);
+}
+
+function setPositions(formation) {
+  for (let i = 0; i < 9; i++) {
+    positions[i].x = formation[i].x;
+    positions[i].y = formation[i].y;
+  }
+}
+
+function resetToA() {
+  animating = false;
+  setPositions(formationA);
+  draw();
+}
+
+function resetToB() {
+  animating = false;
+  setPositions(formationB);
+  draw();
+}
+
+resize();
+</script>
+</body>
+</html>

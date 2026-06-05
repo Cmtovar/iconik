@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Formation Timeline Bar</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'Courier New', monospace;
+    background: #1a1a2e;
+    color: #eee;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .main-area {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: 16px;
+    padding: 20px;
+  }
+
+  .main-area h1 {
+    font-size: 20px;
+    color: #e94560;
+    font-weight: normal;
+    letter-spacing: 2px;
+  }
+
+  .controls-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .controls-row input {
+    background: #16213e;
+    border: 1px solid #0f3460;
+    color: #eee;
+    font-family: 'Courier New', monospace;
+    font-size: 14px;
+    padding: 6px 10px;
+    width: 90px;
+    border-radius: 4px;
+    outline: none;
+  }
+
+  .controls-row input:focus {
+    border-color: #e94560;
+  }
+
+  .controls-row input::placeholder {
+    color: #555;
+  }
+
+  .btn {
+    background: #0f3460;
+    border: 1px solid #1a4a7a;
+    color: #eee;
+    font-family: 'Courier New', monospace;
+    font-size: 13px;
+    padding: 6px 14px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+
+  .btn:hover { background: #1a4a7a; }
+  .btn.accent { background: #e94560; border-color: #e94560; }
+  .btn.accent:hover { background: #c73a52; }
+
+  .current-time-display {
+    font-size: 18px;
+    color: #e94560;
+    min-width: 60px;
+    text-align: center;
+  }
+
+  .formation-info {
+    font-size: 13px;
+    color: #888;
+    margin-top: 4px;
+  }
+
+  /* Timeline bar at bottom */
+  .timeline-container {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 120px;
+    background: #16213e;
+    border-top: 1px solid #0f3460;
+    overflow: hidden;
+    user-select: none;
+  }
+
+  .timeline-canvas {
+    width: 100%;
+    height: 100%;
+    display: block;
+  }
+</style>
+</head>
+<body>
+
+<div class="main-area">
+  <h1>FORMATION TIMELINE</h1>
+  <div class="controls-row">
+    <button class="btn accent" id="playPauseBtn" title="Play/Pause">&#9654; Play</button>
+    <span class="current-time-display" id="currentTimeDisplay">00:00</span>
+    <span style="color:#555;">|</span>
+    <input type="text" id="markerInput" placeholder="mm:ss" title="Enter timestamp for next formation marker" />
+    <button class="btn" id="addMarkerBtn">Add Marker</button>
+  </div>
+  <div class="formation-info" id="formationInfo">No formations yet. Add a marker to begin.</div>
+</div>
+
+<div class="timeline-container">
+  <canvas class="timeline-canvas" id="timelineCanvas"></canvas>
+</div>
+
+<script>
+(function() {
+  // ---- State ----
+  const markers = []; // sorted list of timestamps in seconds where each new formation begins
+  let playing = false;
+  let currentTime = 0; // seconds (float)
+  let lastFrameTime = null;
+  const VISIBLE_WINDOW = 15 * 60; // +/- 15 minutes from center = 30 min total window
+
+  // ---- DOM refs ----
+  const canvas = document.getElementById('timelineCanvas');
+  const ctx = canvas.getContext('2d');
+  const playPauseBtn = document.getElementById('playPauseBtn');
+  const currentTimeDisplay = document.getElementById('currentTimeDisplay');
+  const markerInput = document.getElementById('markerInput');
+  const addMarkerBtn = document.getElementById('addMarkerBtn');
+  const formationInfo = document.getElementById('formationInfo');
+
+  // ---- Helpers ----
+  function parseTime(str) {
+    str = str.trim();
+    const m = str.match(/^(\d{1,3}):(\d{2})$/);
+    if (!m) return null;
+    const mins = parseInt(m[1], 10);
+    const secs = parseInt(m[2], 10);
+    if (secs >= 60) return null;
+    return mins * 60 + secs;
+  }
+
+  function formatTime(totalSecs) {
+    totalSecs = Math.max(0, totalSecs);
+    const m = Math.floor(totalSecs / 60);
+    const s = Math.floor(totalSecs % 60);
+    return String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+  }
+
+  // ---- Formation logic ----
+  // Formations are numbered 1, 2, 3, ...
+  // Formation 1 starts at time 0.
+  // Each marker added creates a boundary where the next formation starts.
+  // markers[0] = end of Formation 1 / start of Formation 2
+  // markers[1] = end of Formation 2 / start of Formation 3
+  // etc.
+  // Odd formations (1, 3, 5...) are "in place", even (2, 4, 6...) are "transition".
+
+  function getFormations() {
+    // Returns array of { number, startTime, endTime, type }
+    const fmts = [];
+    const boundaries = [0, ...markers.sort((a, b) => a - b)];
+    for (let i = 0; i < boundaries.length; i++) {
+      const num = i + 1;
+      const start = boundaries[i];
+      const end = (i + 1 < boundaries.length) ? boundaries[i + 1] : null; // null = open-ended
+      const type = (num % 2 === 1) ? 'inplace' : 'transition';
+      fmts.push({ number: num, startTime: start, endTime: end, type });
+    }
+    return fmts;
+  }
+
+  function getCurrentFormation(formations, t) {
+    for (let i = formations.length - 1; i >= 0; i--) {
+      if (t >= formations[i].startTime) return formations[i];
+    }
+    return formations[0] || null;
+  }
+
+  // ---- Add marker ----
+  function addMarker() {
+    const val = markerInput.value;
+    const t = parseTime(val);
+    if (t === null || t <= 0) {
+      markerInput.style.borderColor = '#e94560';
+      setTimeout(() => { markerInput.style.borderColor = ''; }, 600);
+      return;
+    }
+    if (markers.includes(t)) return; // duplicate
+    markers.push(t);
+    markers.sort((a, b) => a - b);
+    markerInput.value = '';
+    render();
+  }
+
+  addMarkerBtn.addEventListener('click', addMarker);
+  markerInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') addMarker();
+  });
+
+  // ---- Play/Pause ----
+  playPauseBtn.addEventListener('click', () => {
+    playing = !playing;
+    if (playing) {
+      lastFrameTime = performance.now();
+      playPauseBtn.innerHTML = '&#9646;&#9646; Pause';
+    } else {
+      playPauseBtn.innerHTML = '&#9654; Play';
+    }
+  });
+
+  // ---- Canvas resize ----
+  function resizeCanvas() {
+    const rect = canvas.parentElement.getBoundingClientRect();
+    canvas.width = rect.width * devicePixelRatio;
+    canvas.height = rect.height * devicePixelRatio;
+    canvas.style.width = rect.width + 'px';
+    canvas.style.height = rect.height + 'px';
+    ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+  }
+  window.addEventListener('resize', () => { resizeCanvas(); render(); });
+  resizeCanvas();
+
+  // ---- Drawing ----
+  function timeToX(t, centerTime, width) {
+    const totalWindow = VISIBLE_WINDOW * 2;
+    const left = centerTime - VISIBLE_WINDOW;
+    return ((t - left) / totalWindow) * width;
+  }
+
+  function drawTimeline() {
+    const w = canvas.width / devicePixelRatio;
+    const h = canvas.height / devicePixelRatio;
+    const centerTime = currentTime;
+    const formations = getFormations();
+    const cur = getCurrentFormation(formations, currentTime);
+
+    // Clear
+    ctx.clearRect(0, 0, w, h);
+
+    // Background
+    ctx.fillStyle = '#16213e';
+    ctx.fillRect(0, 0, w, h);
+
+    const barTop = 12;
+    const barHeight = h - 38;
+    const barBottom = barTop + barHeight;
+
+    // Draw formations
+    for (const f of formations) {
+      const start = f.startTime;
+      const end = f.endTime !== null ? f.endTime : centerTime + VISIBLE_WINDOW + 100;
+      const x1 = timeToX(start, centerTime, w);
+      const x2 = timeToX(end, centerTime, w);
+
+      // Skip if fully off screen
+      if (x2 < -50 || x1 > w + 50) continue;
+
+      const isCurrent = cur && cur.number === f.number;
+
+      if (f.type === 'inplace') {
+        // Rounded rectangle block
+        const rx = Math.max(x1, -10);
+        const rw = Math.min(x2, w + 10) - rx;
+        if (rw <= 0) continue;
+
+        ctx.fillStyle = isCurrent ? '#163d6e' : '#0f3460';
+        ctx.strokeStyle = isCurrent ? '#e94560' : '#1a4a7a';
+        ctx.lineWidth = isCurrent ? 2 : 1;
+        const r = 6;
+        ctx.beginPath();
+        ctx.roundRect(rx + 1, barTop, rw - 2, barHeight, r);
+        ctx.fill();
+        ctx.stroke();
+
+        // Label
+        const labelX = (x1 + x2) / 2;
+        if (labelX > -50 && labelX < w + 50) {
+          ctx.fillStyle = isCurrent ? '#fff' : '#ccc';
+          ctx.font = 'bold 12px Courier New, monospace';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText('Formation ' + f.number, labelX, barTop + barHeight / 2);
+        }
+      } else {
+        // Transition: X-shaped crossover (bowtie/hourglass)
+        const segW = x2 - x1;
+        if (segW <= 0) continue;
+
+        const topY = barTop + 2;
+        const botY = barBottom - 2;
+        const midY = (topY + botY) / 2;
+
+        // Fill the X shape (two triangles forming a bowtie)
+        ctx.fillStyle = isCurrent ? 'rgba(233,69,96,0.15)' : 'rgba(15,52,96,0.4)';
+        ctx.beginPath();
+        // Top-left to center to bottom-left (left triangle)
+        ctx.moveTo(x1, topY);
+        ctx.lineTo((x1 + x2) / 2, midY);
+        ctx.lineTo(x1, botY);
+        ctx.closePath();
+        ctx.fill();
+
+        ctx.beginPath();
+        // Top-right to center to bottom-right (right triangle)
+        ctx.moveTo(x2, topY);
+        ctx.lineTo((x1 + x2) / 2, midY);
+        ctx.lineTo(x2, botY);
+        ctx.closePath();
+        ctx.fill();
+
+        // Draw the X lines
+        ctx.strokeStyle = isCurrent ? '#e94560' : '#1a4a7a';
+        ctx.lineWidth = isCurrent ? 2 : 1.5;
+
+        ctx.beginPath();
+        ctx.moveTo(x1, topY);
+        ctx.lineTo(x2, botY);
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.moveTo(x1, botY);
+        ctx.lineTo(x2, topY);
+        ctx.stroke();
+
+        // Label
+        const labelX = (x1 + x2) / 2;
+        if (labelX > -50 && labelX < w + 50 && segW > 40) {
+          ctx.fillStyle = isCurrent ? '#e94560' : '#888';
+          ctx.font = '10px Courier New, monospace';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'bottom';
+          ctx.fillText('T' + f.number, labelX, topY - 1);
+        }
+      }
+    }
+
+    // Draw time ticks along bottom
+    const tickInterval = 30; // every 30 seconds
+    const leftTime = centerTime - VISIBLE_WINDOW;
+    const rightTime = centerTime + VISIBLE_WINDOW;
+    const firstTick = Math.ceil(Math.max(0, leftTime) / tickInterval) * tickInterval;
+
+    ctx.font = '10px Courier New, monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+
+    for (let t = firstTick; t <= rightTime; t += tickInterval) {
+      const x = timeToX(t, centerTime, w);
+      if (x < 0 || x > w) continue;
+
+      const isMajor = (t % 60 === 0);
+      ctx.strokeStyle = isMajor ? '#334466' : '#263550';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(x, barBottom + 2);
+      ctx.lineTo(x, barBottom + (isMajor ? 8 : 5));
+      ctx.stroke();
+
+      if (isMajor || (w > 600)) {
+        ctx.fillStyle = '#667';
+        ctx.fillText(formatTime(t), x, barBottom + 9);
+      }
+    }
+
+    // Draw marker lines (boundaries)
+    for (const mt of markers) {
+      const x = timeToX(mt, centerTime, w);
+      if (x < 0 || x > w) continue;
+      ctx.strokeStyle = '#e9456055';
+      ctx.lineWidth = 1;
+      ctx.setLineDash([3, 3]);
+      ctx.beginPath();
+      ctx.moveTo(x, barTop);
+      ctx.lineTo(x, barBottom);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    // Draw playhead (center vertical line)
+    const phX = w / 2;
+    ctx.strokeStyle = '#e94560';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(phX, 0);
+    ctx.lineTo(phX, h);
+    ctx.stroke();
+
+    // Playhead triangle at top
+    ctx.fillStyle = '#e94560';
+    ctx.beginPath();
+    ctx.moveTo(phX, 0);
+    ctx.lineTo(phX - 5, 8);
+    ctx.lineTo(phX + 5, 8);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  // ---- Update info display ----
+  function updateInfo() {
+    const formations = getFormations();
+    const cur = getCurrentFormation(formations, currentTime);
+    currentTimeDisplay.textContent = formatTime(currentTime);
+
+    if (!cur) {
+      formationInfo.textContent = 'No formations yet. Add a marker to begin.';
+    } else if (formations.length === 1) {
+      formationInfo.textContent = 'Formation 1 (in place) -- add markers to create more formations.';
+    } else {
+      const typeLabel = cur.type === 'inplace' ? 'in place' : 'transition';
+      formationInfo.textContent = 'Current: Formation ' + cur.number + ' (' + typeLabel + ') | Total: ' + formations.length + ' formations';
+    }
+  }
+
+  // ---- Render loop ----
+  function render() {
+    drawTimeline();
+    updateInfo();
+  }
+
+  function tick(now) {
+    if (playing) {
+      if (lastFrameTime !== null) {
+        const dt = (now - lastFrameTime) / 1000;
+        currentTime += dt;
+      }
+      lastFrameTime = now;
+    } else {
+      lastFrameTime = null;
+    }
+    render();
+    requestAnimationFrame(tick);
+  }
+
+  requestAnimationFrame(tick);
+
+  // ---- Click on timeline to seek ----
+  canvas.addEventListener('click', (e) => {
+    const rect = canvas.getBoundingClientRect();
+    const clickX = e.clientX - rect.left;
+    const w = rect.width;
+    const centerTime = currentTime;
+    const totalWindow = VISIBLE_WINDOW * 2;
+    const left = centerTime - VISIBLE_WINDOW;
+    const t = left + (clickX / w) * totalWindow;
+    if (t >= 0) {
+      currentTime = t;
+      render();
+    }
+  });
+
+})();
+</script>
+</body>
+</html>

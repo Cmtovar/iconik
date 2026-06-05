@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Audio Player</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #1a1a2e;
+    font-family: monospace;
+    color: #eee;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+  }
+
+  #audio-player {
+    background: #16213e;
+    border-radius: 8px;
+    padding: 12px 20px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    width: 700px;
+    max-width: 95vw;
+    position: relative;
+  }
+
+  /* Drop zone overlay */
+  #drop-overlay {
+    display: none;
+    position: absolute;
+    inset: 0;
+    background: rgba(233, 69, 96, 0.15);
+    border: 2px dashed #e94560;
+    border-radius: 8px;
+    z-index: 10;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    color: #e94560;
+    pointer-events: none;
+  }
+  #drop-overlay.visible {
+    display: flex;
+  }
+
+  /* Load button */
+  #load-btn {
+    background: #e94560;
+    color: #eee;
+    border: none;
+    border-radius: 4px;
+    padding: 6px 12px;
+    font-family: monospace;
+    font-size: 12px;
+    cursor: pointer;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  #load-btn:hover { opacity: 0.85; }
+
+  #file-input { display: none; }
+
+  /* Play / Pause */
+  #play-btn {
+    background: none;
+    border: 2px solid #e94560;
+    color: #e94560;
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    font-size: 16px;
+    line-height: 1;
+    padding: 0;
+  }
+  #play-btn:hover { background: rgba(233, 69, 96, 0.15); }
+  #play-btn:disabled { opacity: 0.35; cursor: default; }
+
+  /* Filename */
+  #filename {
+    font-size: 12px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
+    max-width: 140px;
+    flex-shrink: 1;
+    color: #aaa;
+  }
+
+  /* Scrub bar wrapper */
+  #scrub-wrap {
+    flex: 1;
+    min-width: 0;
+    height: 6px;
+    background: #0f3460;
+    border-radius: 3px;
+    cursor: pointer;
+    position: relative;
+  }
+  #scrub-fill {
+    height: 100%;
+    width: 0%;
+    background: #e94560;
+    border-radius: 3px;
+    pointer-events: none;
+  }
+
+  /* Time display */
+  #time-display {
+    font-size: 12px;
+    white-space: nowrap;
+    flex-shrink: 0;
+    color: #ccc;
+  }
+</style>
+</head>
+<body>
+
+<div id="audio-player">
+  <div id="drop-overlay">Drop audio file here</div>
+
+  <input type="file" id="file-input" accept="audio/*">
+  <button id="load-btn">Load</button>
+
+  <button id="play-btn" disabled>&#9654;</button>
+
+  <span id="filename">No file loaded</span>
+
+  <div id="scrub-wrap">
+    <div id="scrub-fill"></div>
+  </div>
+
+  <span id="time-display">00:00 / 00:00</span>
+</div>
+
+<script>
+(function () {
+  const player    = document.getElementById('audio-player');
+  const fileInput = document.getElementById('file-input');
+  const loadBtn   = document.getElementById('load-btn');
+  const playBtn   = document.getElementById('play-btn');
+  const fileLabel = document.getElementById('filename');
+  const scrubWrap = document.getElementById('scrub-wrap');
+  const scrubFill = document.getElementById('scrub-fill');
+  const timeDisp  = document.getElementById('time-display');
+  const dropOver  = document.getElementById('drop-overlay');
+
+  const audio = new Audio();
+  let loaded = false;
+  let dragging = false;
+
+  // ---- helpers ----
+  function fmt(sec) {
+    if (!isFinite(sec)) sec = 0;
+    const m = Math.floor(sec / 60);
+    const s = Math.floor(sec % 60);
+    return String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+  }
+
+  function updateTime() {
+    scrubFill.style.width = (audio.duration ? (audio.currentTime / audio.duration) * 100 : 0) + '%';
+    timeDisp.textContent = fmt(audio.currentTime) + ' / ' + fmt(audio.duration);
+  }
+
+  function loadFile(file) {
+    if (!file || !file.type.startsWith('audio/')) return;
+    const url = URL.createObjectURL(file);
+    audio.src = url;
+    audio.load();
+    fileLabel.textContent = file.name;
+    loaded = true;
+    playBtn.disabled = false;
+    playBtn.innerHTML = '&#9654;';
+  }
+
+  // ---- file picker ----
+  loadBtn.addEventListener('click', () => fileInput.click());
+  fileInput.addEventListener('change', () => {
+    if (fileInput.files.length) loadFile(fileInput.files[0]);
+  });
+
+  // ---- drag and drop ----
+  let dragCounter = 0;
+
+  player.addEventListener('dragenter', (e) => {
+    e.preventDefault();
+    dragCounter++;
+    dropOver.classList.add('visible');
+  });
+  player.addEventListener('dragover', (e) => e.preventDefault());
+  player.addEventListener('dragleave', (e) => {
+    e.preventDefault();
+    dragCounter--;
+    if (dragCounter <= 0) {
+      dragCounter = 0;
+      dropOver.classList.remove('visible');
+    }
+  });
+  player.addEventListener('drop', (e) => {
+    e.preventDefault();
+    dragCounter = 0;
+    dropOver.classList.remove('visible');
+    if (e.dataTransfer.files.length) loadFile(e.dataTransfer.files[0]);
+  });
+
+  // ---- play / pause ----
+  playBtn.addEventListener('click', () => {
+    if (!loaded) return;
+    if (audio.paused) {
+      audio.play();
+      playBtn.innerHTML = '&#9646;&#9646;';
+    } else {
+      audio.pause();
+      playBtn.innerHTML = '&#9654;';
+    }
+  });
+
+  audio.addEventListener('ended', () => {
+    playBtn.innerHTML = '&#9654;';
+  });
+
+  // ---- scrub bar ----
+  function seek(e) {
+    if (!loaded) return;
+    const rect = scrubWrap.getBoundingClientRect();
+    const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    audio.currentTime = ratio * audio.duration;
+    updateTime();
+  }
+
+  scrubWrap.addEventListener('mousedown', (e) => {
+    dragging = true;
+    seek(e);
+  });
+  document.addEventListener('mousemove', (e) => {
+    if (dragging) seek(e);
+  });
+  document.addEventListener('mouseup', () => {
+    dragging = false;
+  });
+
+  // ---- time updates ----
+  audio.addEventListener('timeupdate', updateTime);
+  audio.addEventListener('loadedmetadata', updateTime);
+})();
+</script>
+
+</body>
+</html>
