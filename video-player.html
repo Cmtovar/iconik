@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Video Player</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      background: #1a1a2e;
+      font-family: monospace;
+      color: #eee;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+    }
+
+    .player-container {
+      background: #16213e;
+      border-radius: 6px;
+      overflow: hidden;
+      max-width: 720px;
+      width: 100%;
+    }
+
+    .video-wrap {
+      position: relative;
+      width: 100%;
+      background: #000;
+    }
+
+    .video-wrap video {
+      display: block;
+      width: 100%;
+    }
+
+    .controls {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 10px;
+      background: #16213e;
+    }
+
+    .btn {
+      background: #0f3460;
+      border: 1px solid #e94560;
+      color: #eee;
+      font-family: monospace;
+      font-size: 13px;
+      padding: 4px 10px;
+      border-radius: 4px;
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+
+    .btn:hover {
+      background: #e94560;
+    }
+
+    .seek-bar {
+      flex: 1;
+      -webkit-appearance: none;
+      appearance: none;
+      height: 6px;
+      background: #0f3460;
+      border-radius: 3px;
+      outline: none;
+      cursor: pointer;
+    }
+
+    .seek-bar::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      background: #e94560;
+      cursor: pointer;
+    }
+
+    .seek-bar::-moz-range-thumb {
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      background: #e94560;
+      border: none;
+      cursor: pointer;
+    }
+
+    .time-display {
+      font-size: 12px;
+      white-space: nowrap;
+      flex-shrink: 0;
+      color: #eee;
+    }
+  </style>
+</head>
+<body>
+  <div class="player-container">
+    <div class="video-wrap">
+      <video id="video" preload="auto">
+        <source src="reference.mp4" type="video/mp4">
+      </video>
+    </div>
+    <div class="controls">
+      <button class="btn" id="playPauseBtn">Play</button>
+      <input type="range" class="seek-bar" id="seekBar" min="0" max="100" step="0.1" value="0">
+      <span class="time-display" id="timeDisplay">00:00 / 00:00</span>
+    </div>
+  </div>
+
+  <script>
+    const video = document.getElementById('video');
+    const playPauseBtn = document.getElementById('playPauseBtn');
+    const seekBar = document.getElementById('seekBar');
+    const timeDisplay = document.getElementById('timeDisplay');
+
+    function formatTime(seconds) {
+      const m = Math.floor(seconds / 60);
+      const s = Math.floor(seconds % 60);
+      return String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+    }
+
+    playPauseBtn.addEventListener('click', () => {
+      if (video.paused) {
+        video.play();
+      } else {
+        video.pause();
+      }
+    });
+
+    video.addEventListener('play', () => { playPauseBtn.textContent = 'Pause'; });
+    video.addEventListener('pause', () => { playPauseBtn.textContent = 'Play'; });
+
+    video.addEventListener('loadedmetadata', () => {
+      seekBar.max = video.duration;
+      timeDisplay.textContent = formatTime(0) + ' / ' + formatTime(video.duration);
+    });
+
+    video.addEventListener('timeupdate', () => {
+      seekBar.value = video.currentTime;
+      timeDisplay.textContent = formatTime(video.currentTime) + ' / ' + formatTime(video.duration || 0);
+    });
+
+    let seeking = false;
+
+    seekBar.addEventListener('mousedown', () => { seeking = true; });
+    seekBar.addEventListener('input', () => {
+      video.currentTime = parseFloat(seekBar.value);
+      timeDisplay.textContent = formatTime(video.currentTime) + ' / ' + formatTime(video.duration || 0);
+    });
+    seekBar.addEventListener('mouseup', () => { seeking = false; });
+    seekBar.addEventListener('touchstart', () => { seeking = true; });
+    seekBar.addEventListener('touchend', () => { seeking = false; });
+
+    video.addEventListener('timeupdate', () => {
+      if (!seeking) {
+        seekBar.value = video.currentTime;
+      }
+      timeDisplay.textContent = formatTime(video.currentTime) + ' / ' + formatTime(video.duration || 0);
+    });
+
+    video.addEventListener('ended', () => { playPauseBtn.textContent = 'Play'; });
+  </script>
+</body>
+</html>
