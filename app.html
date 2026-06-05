@@ -237,11 +237,19 @@
 
   /* ===== Formation timeline bar (bottom) ===== */
   #timeline-section {
-    flex-shrink: 0;
+    position: fixed;
+    bottom: 12px;
+    left: 12px;
+    right: 12px;
+    height: 160px;
     background: #16213e;
-    border-top: 1px solid #0f3460;
+    border: 1px solid #0f3460;
+    border-radius: 6px;
+    overflow: hidden;
+    user-select: none;
     display: flex;
     flex-direction: column;
+    z-index: 20;
   }
   #timeline-controls {
     display: flex;
@@ -251,18 +259,6 @@
     font-size: 12px;
     border-bottom: 1px solid #0f3460;
   }
-  #timeline-controls input {
-    background: #1a1a2e;
-    border: 1px solid #0f3460;
-    color: #eee;
-    font-family: monospace;
-    font-size: 12px;
-    padding: 3px 8px;
-    width: 70px;
-    border-radius: 4px;
-    outline: none;
-  }
-  #timeline-controls input:focus { border-color: #e94560; }
   #timeline-controls button {
     background: #0f3460;
     border: 1px solid #e94560;
@@ -286,14 +282,57 @@
     font-size: 11px;
     margin-left: auto;
   }
-  #timeline-canvas-wrap {
-    height: 90px;
-    position: relative;
-  }
   #timelineCanvas {
-    display: block;
     width: 100%;
-    height: 100%;
+    height: 130px;
+    display: block;
+  }
+
+  /* Horizontal scrollbar below timeline */
+  .timeline-scrollbar {
+    width: 100%;
+    height: 18px;
+    background: #16213e;
+    border-top: 1px solid #0f3460;
+    display: flex;
+    align-items: center;
+    padding: 0 4px;
+  }
+
+  .timeline-scrollbar input[type="range"] {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    height: 8px;
+    background: #0f3460;
+    border-radius: 4px;
+    outline: none;
+    cursor: pointer;
+  }
+
+  .timeline-scrollbar input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 24px;
+    height: 12px;
+    background: #e94560;
+    border-radius: 3px;
+    cursor: pointer;
+  }
+
+  .timeline-scrollbar input[type="range"]::-moz-range-thumb {
+    width: 24px;
+    height: 12px;
+    background: #e94560;
+    border: none;
+    border-radius: 3px;
+    cursor: pointer;
+  }
+
+  .timeline-scrollbar input[type="range"]::-moz-range-track {
+    background: #0f3460;
+    height: 8px;
+    border-radius: 4px;
   }
 </style>
 </head>
@@ -343,12 +382,17 @@
     <button id="tl-play-btn">&#9654; Play</button>
     <span class="tl-time-display" id="tl-time-display">00:00</span>
     <span style="color:#555;">|</span>
-    <input type="text" id="markerInput" placeholder="mm:ss" title="Timestamp for formation boundary">
+    <span style="display:inline-flex;align-items:center;gap:2px;background:#16213e;border:1px solid #0f3460;border-radius:4px;padding:2px 4px;">
+      <input type="text" id="markerMin" placeholder="mm" maxlength="3" style="width:36px;text-align:center;background:transparent;border:none;color:#eee;font-family:monospace;font-size:12px;outline:none;" />
+      <span style="color:#e94560;font-size:16px;font-weight:bold;">:</span>
+      <input type="text" id="markerSec" placeholder="ss" maxlength="2" style="width:36px;text-align:center;background:transparent;border:none;color:#eee;font-family:monospace;font-size:12px;outline:none;" />
+    </span>
     <button id="addMarkerBtn">Add Marker</button>
     <span id="formation-info">No formations yet.</span>
   </div>
-  <div id="timeline-canvas-wrap">
-    <canvas id="timelineCanvas"></canvas>
+  <canvas id="timelineCanvas"></canvas>
+  <div class="timeline-scrollbar">
+    <input type="range" id="timelineScrollbar" min="0" max="60" step="0.1" value="0" />
   </div>
 </div>
 
@@ -408,7 +452,7 @@ const COLORS = [
   '#e94560','#3498db','#2ecc71','#f39c12','#9b59b6',
   '#1abc9c','#e67e22','#e74c3c','#00bcd4'
 ];
-const VISIBLE_WINDOW = 15 * 60; // +/- 15 min
+const VISIBLE_WINDOW = 15; // +/- 15 seconds from center = 30 seconds total visible
 
 let dots = [];          // { id, gx, gy, color, name }
 let snapshots = [];     // { name, timestamp, dots: [...] }
@@ -853,19 +897,22 @@ function setPlaying(state) {
   const tlCtx = tlCanvas.getContext('2d');
   const tlPlayBtn = document.getElementById('tl-play-btn');
   const tlTimeDisplay = document.getElementById('tl-time-display');
-  const markerInput = document.getElementById('markerInput');
+  const markerMin = document.getElementById('markerMin');
+  const markerSec = document.getElementById('markerSec');
   const addMarkerBtn = document.getElementById('addMarkerBtn');
   const formationInfoEl = document.getElementById('formation-info');
 
   function getFormations() {
     const fmts = [];
     const boundaries = [0, ...markers.slice().sort((a, b) => a - b)];
+    let inPlaceCount = 0;
     for (let i = 0; i < boundaries.length; i++) {
       const num = i + 1;
       const start = boundaries[i];
       const end = (i + 1 < boundaries.length) ? boundaries[i + 1] : null;
       const type = (num % 2 === 1) ? 'inplace' : 'transition';
-      fmts.push({ number: num, startTime: start, endTime: end, type });
+      if (type === 'inplace') inPlaceCount++;
+      fmts.push({ number: num, startTime: start, endTime: end, type, formationLabel: type === 'inplace' ? inPlaceCount : num });
     }
     return fmts;
   }
@@ -883,21 +930,47 @@ function setPlaying(state) {
 
   // Add marker
   function addMarker() {
-    const t = parseTime(markerInput.value);
-    if (t === null || t <= 0) {
-      markerInput.style.borderColor = '#e94560';
-      setTimeout(() => { markerInput.style.borderColor = ''; }, 600);
-      return;
+    let t;
+    if (markerMin.value === '' && markerSec.value === '') {
+      // No input -- stamp exactly at playhead position
+      t = Math.round(currentTime * 10) / 10;
+      if (t <= 0) return;
+    } else {
+      const mins = parseInt(markerMin.value, 10) || 0;
+      const secs = parseInt(markerSec.value, 10) || 0;
+      if (secs >= 60) {
+        markerSec.style.borderBottom = '2px solid #e94560';
+        setTimeout(() => { markerSec.style.borderBottom = ''; }, 600);
+        return;
+      }
+      t = mins * 60 + secs;
+      if (t <= 0) return;
     }
     if (markers.includes(t)) return;
     markers.push(t);
     markers.sort((a, b) => a - b);
-    markerInput.value = '';
+    markerMin.value = '';
+    markerSec.value = '';
+    markerMin.focus();
     autoSave();
   }
 
+  // Auto-tab from min to sec when 2+ digits typed
+  markerMin.addEventListener('input', () => {
+    markerMin.value = markerMin.value.replace(/\D/g, '');
+    if (markerMin.value.length >= 2) markerSec.focus();
+  });
+  markerSec.addEventListener('input', () => {
+    markerSec.value = markerSec.value.replace(/\D/g, '');
+  });
+
   addMarkerBtn.addEventListener('click', addMarker);
-  markerInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') addMarker(); });
+  markerSec.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') addMarker();
+  });
+  markerMin.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') addMarker();
+  });
 
   // Play/Pause (synced)
   tlPlayBtn.addEventListener('click', () => {
@@ -916,7 +989,7 @@ function setPlaying(state) {
 
   // Resize timeline canvas
   function resizeTL() {
-    const rect = tlCanvas.parentElement.getBoundingClientRect();
+    const rect = tlCanvas.getBoundingClientRect();
     tlCanvas.width = rect.width * devicePixelRatio;
     tlCanvas.height = rect.height * devicePixelRatio;
     tlCanvas.style.width = rect.width + 'px';
@@ -932,6 +1005,12 @@ function setPlaying(state) {
     return ((t - left) / totalWindow) * width;
   }
 
+  function xToTime(x, centerTime, width) {
+    const totalWindow = VISIBLE_WINDOW * 2;
+    const left = centerTime - VISIBLE_WINDOW;
+    return left + (x / width) * totalWindow;
+  }
+
   function drawTimeline() {
     const w = tlCanvas.width / devicePixelRatio;
     const h = tlCanvas.height / devicePixelRatio;
@@ -943,8 +1022,8 @@ function setPlaying(state) {
     tlCtx.fillStyle = '#16213e';
     tlCtx.fillRect(0, 0, w, h);
 
-    const barTop = 8;
-    const barHeight = h - 30;
+    const barTop = 10;
+    const barHeight = h - 50;
     const barBottom = barTop + barHeight;
 
     // Draw formations
@@ -965,21 +1044,25 @@ function setPlaying(state) {
         tlCtx.fillStyle = isCurrent ? '#163d6e' : '#0f3460';
         tlCtx.strokeStyle = isCurrent ? '#e94560' : '#1a4a7a';
         tlCtx.lineWidth = isCurrent ? 2 : 1;
+        const r = 6;
         tlCtx.beginPath();
-        tlCtx.roundRect(rx + 1, barTop, rw - 2, barHeight, 6);
+        tlCtx.roundRect(rx + 1, barTop, rw - 2, barHeight, r);
         tlCtx.fill();
         tlCtx.stroke();
 
         const labelX = (x1 + x2) / 2;
         if (labelX > -50 && labelX < w + 50) {
           tlCtx.fillStyle = isCurrent ? '#fff' : '#ccc';
-          tlCtx.font = 'bold 11px monospace';
+          tlCtx.font = 'bold 12px Courier New, monospace';
           tlCtx.textAlign = 'center';
           tlCtx.textBaseline = 'middle';
-          tlCtx.fillText('F' + f.number, labelX, barTop + barHeight / 2);
+          tlCtx.fillText('Formation ' + f.formationLabel, labelX, barTop + barHeight / 2);
         }
       } else {
         // Transition X-crossover
+        const segW = x2 - x1;
+        if (segW <= 0) continue;
+
         const topY = barTop + 2;
         const botY = barBottom - 2;
         const midY = (topY + botY) / 2;
@@ -998,9 +1081,9 @@ function setPlaying(state) {
         tlCtx.beginPath(); tlCtx.moveTo(x1, botY); tlCtx.lineTo(x2, topY); tlCtx.stroke();
 
         const labelX = (x1 + x2) / 2;
-        if (labelX > -50 && labelX < w + 50 && (x2 - x1) > 30) {
+        if (labelX > -50 && labelX < w + 50 && segW > 40) {
           tlCtx.fillStyle = isCurrent ? '#e94560' : '#888';
-          tlCtx.font = '9px monospace';
+          tlCtx.font = '10px Courier New, monospace';
           tlCtx.textAlign = 'center';
           tlCtx.textBaseline = 'bottom';
           tlCtx.fillText('T' + f.number, labelX, topY - 1);
@@ -1013,7 +1096,7 @@ function setPlaying(state) {
     const leftTime = centerTime - VISIBLE_WINDOW;
     const rightTime = centerTime + VISIBLE_WINDOW;
     const firstTick = Math.ceil(Math.max(0, leftTime) / tickInterval) * tickInterval;
-    tlCtx.font = '9px monospace';
+    tlCtx.font = 'bold 11px Courier New, monospace';
     tlCtx.textAlign = 'center';
     tlCtx.textBaseline = 'top';
     for (let t = firstTick; t <= rightTime; t += tickInterval) {
@@ -1024,11 +1107,12 @@ function setPlaying(state) {
       tlCtx.lineWidth = 1;
       tlCtx.beginPath();
       tlCtx.moveTo(x, barBottom + 2);
-      tlCtx.lineTo(x, barBottom + (isMajor ? 7 : 4));
+      tlCtx.lineTo(x, barBottom + (isMajor ? 8 : 5));
       tlCtx.stroke();
       if (isMajor || w > 600) {
-        tlCtx.fillStyle = '#667';
-        tlCtx.fillText(fmt(t), x, barBottom + 8);
+        tlCtx.fillStyle = '#bbb';
+        tlCtx.font = 'bold 11px Courier New, monospace';
+        tlCtx.fillText(fmt(t), x, barBottom + 10);
       }
     }
 
@@ -1057,8 +1141,8 @@ function setPlaying(state) {
     tlCtx.fillStyle = '#e94560';
     tlCtx.beginPath();
     tlCtx.moveTo(phX, 0);
-    tlCtx.lineTo(phX - 5, 7);
-    tlCtx.lineTo(phX + 5, 7);
+    tlCtx.lineTo(phX - 5, 8);
+    tlCtx.lineTo(phX + 5, 8);
     tlCtx.closePath();
     tlCtx.fill();
   }
@@ -1077,20 +1161,141 @@ function setPlaying(state) {
     }
   }
 
-  // Click to seek on timeline
-  tlCanvas.addEventListener('click', (e) => {
+  // ---- Scrollbar ----
+  const scrollbar = document.getElementById('timelineScrollbar');
+
+  function getMaxScrollTime() {
+    const lastMarker = markers.length > 0 ? markers[markers.length - 1] : 0;
+    return Math.max(60, lastMarker + 30);
+  }
+
+  function updateScrollbar() {
+    const maxTime = getMaxScrollTime();
+    scrollbar.max = maxTime;
+    scrollbar.value = currentTime;
+  }
+
+  scrollbar.addEventListener('input', () => {
+    currentTime = parseFloat(scrollbar.value);
+    if (audioLoaded && isFinite(audio.duration)) {
+      audio.currentTime = Math.min(currentTime, audio.duration);
+    }
+  });
+
+  // ---- Mouse wheel panning on timeline canvas ----
+  tlCanvas.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    const delta = e.deltaX !== 0 ? e.deltaX : e.deltaY;
+    const panAmount = delta * 0.05;
+    currentTime = Math.max(0, currentTime + panAmount);
+    if (audioLoaded && isFinite(audio.duration)) {
+      audio.currentTime = Math.min(currentTime, audio.duration);
+    }
+  }, { passive: false });
+
+  // ---- Drag timeline to seek ----
+  let draggingTimeline = false;
+
+  // ---- Drag marker boundaries ----
+  let draggingMarkerIndex = -1;
+  const MARKER_GRAB_PX = 8;
+
+  function findNearbyMarker(clientX) {
     const rect = tlCanvas.getBoundingClientRect();
-    const clickX = e.clientX - rect.left;
     const w = rect.width;
-    const totalWindow = VISIBLE_WINDOW * 2;
-    const left = currentTime - VISIBLE_WINDOW;
-    const t = left + (clickX / w) * totalWindow;
+    const mouseX = clientX - rect.left;
+    let bestIdx = -1;
+    let bestDist = Infinity;
+    for (let i = 0; i < markers.length; i++) {
+      const mx = timeToX(markers[i], currentTime, w);
+      const dist = Math.abs(mx - mouseX);
+      if (dist < MARKER_GRAB_PX && dist < bestDist) {
+        bestDist = dist;
+        bestIdx = i;
+      }
+    }
+    return bestIdx;
+  }
+
+  function seekToX(clientX) {
+    const rect = tlCanvas.getBoundingClientRect();
+    const clickX = clientX - rect.left;
+    const w = rect.width;
+    const t = xToTime(clickX, currentTime, w);
     if (t >= 0) {
       currentTime = t;
       if (audioLoaded && isFinite(audio.duration)) {
         audio.currentTime = Math.min(t, audio.duration);
       }
+      // Update the min/sec inputs to show current time for easy "Add Marker"
+      const m = Math.floor(currentTime / 60);
+      const s = Math.floor(currentTime % 60);
+      markerMin.value = String(m);
+      markerSec.value = String(s).padStart(2, '0');
     }
+  }
+
+  // Cursor style: show col-resize when hovering near a marker boundary
+  tlCanvas.addEventListener('mousemove', (e) => {
+    if (draggingMarkerIndex >= 0) return;
+    if (draggingTimeline) return;
+    const idx = findNearbyMarker(e.clientX);
+    tlCanvas.style.cursor = idx >= 0 ? 'col-resize' : '';
+  });
+
+  tlCanvas.addEventListener('mousedown', (e) => {
+    // Check if near a marker boundary first -- marker drag takes priority
+    const idx = findNearbyMarker(e.clientX);
+    if (idx >= 0) {
+      draggingMarkerIndex = idx;
+      tlCanvas.style.cursor = 'col-resize';
+      e.preventDefault();
+      return;
+    }
+    // Otherwise, normal timeline seek drag
+    draggingTimeline = true;
+    seekToX(e.clientX);
+  });
+
+  window.addEventListener('mousemove', (e) => {
+    if (draggingMarkerIndex >= 0) {
+      const rect = tlCanvas.getBoundingClientRect();
+      const w = rect.width;
+      const mouseX = e.clientX - rect.left;
+      let newTime = xToTime(mouseX, currentTime, w);
+
+      if (newTime < 0) newTime = 0;
+
+      const sorted = [...markers].sort((a, b) => a - b);
+      const sortedIdx = sorted.indexOf(markers[draggingMarkerIndex]);
+      if (sortedIdx > 0 && newTime <= sorted[sortedIdx - 1]) {
+        newTime = sorted[sortedIdx - 1] + 0.1;
+      }
+      if (sortedIdx < sorted.length - 1 && newTime >= sorted[sortedIdx + 1]) {
+        newTime = sorted[sortedIdx + 1] - 0.1;
+      }
+
+      if (newTime < 0.1) newTime = 0.1;
+
+      markers[draggingMarkerIndex] = Math.round(newTime * 10) / 10;
+      autoSave();
+      return;
+    }
+    if (draggingTimeline) {
+      seekToX(e.clientX);
+    }
+  });
+
+  window.addEventListener('mouseup', () => {
+    if (draggingMarkerIndex >= 0) {
+      markers[draggingMarkerIndex] = Math.round(markers[draggingMarkerIndex]);
+      if (markers[draggingMarkerIndex] < 1) markers[draggingMarkerIndex] = 1;
+      markers.sort((a, b) => a - b);
+      draggingMarkerIndex = -1;
+      tlCanvas.style.cursor = '';
+      autoSave();
+    }
+    draggingTimeline = false;
   });
 
   // ===== Main animation tick =====
@@ -1118,6 +1323,7 @@ function setPlaying(state) {
 
     drawTimeline();
     updateInfo();
+    updateScrollbar();
     if (window._audioUpdateUI) window._audioUpdateUI();
 
     requestAnimationFrame(tick);
