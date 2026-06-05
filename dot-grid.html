@@ -77,8 +77,14 @@
 <script>
 const canvas = document.getElementById('canvas');
 const ctx = canvas.getContext('2d');
-const GRID_SIZE = 30;
-const DOT_RADIUS = 10;
+const GRID_SIZE = 45;
+const DOT_RADIUS = 14;
+
+// Stage definition: landscape rectangle
+const STAGE_COLS_HALF = 8;  // -8 to 8 horizontally (17 positions)
+const STAGE_ROWS_HALF = 5;  // -5 to 5 vertically (11 positions)
+const STAGE_MARGIN_X = 50;  // margin from canvas edge to red border
+const STAGE_MARGIN_Y = 35;
 
 const COLORS = [
   '#e94560','#3498db','#2ecc71','#f39c12','#9b59b6',
@@ -100,22 +106,22 @@ let formationCounter = 0;
 function initTriangle() {
   // Triangle formation pointing upward, 9 dots:
   // Center-origin coordinates: positive X = right, positive Y = up (stage coords)
-  const sp = 3; // spacing in grid units
+  const sp = 2; // spacing in grid units
 
   const positions = [
     // Row 1 (top): 1 dot
-    { gx: 0, gy: 4 * sp },
+    { gx: 0, gy: 3 * sp },
     // Row 2: 2 dots
-    { gx: -sp, gy: 3 * sp },
-    { gx: sp, gy: 3 * sp },
+    { gx: -sp, gy: 2 * sp },
+    { gx: sp, gy: 2 * sp },
     // Row 3: 3 dots
-    { gx: -2 * sp, gy: 2 * sp },
-    { gx: 0, gy: 2 * sp },
-    { gx: 2 * sp, gy: 2 * sp },
-    // Row 4 (bottom): 3 dots
     { gx: -2 * sp, gy: sp },
     { gx: 0, gy: sp },
     { gx: 2 * sp, gy: sp },
+    // Row 4 (bottom): 3 dots
+    { gx: -2 * sp, gy: 0 },
+    { gx: 0, gy: 0 },
+    { gx: 2 * sp, gy: 0 },
   ];
 
   dots = positions.map((pos, i) => ({
@@ -134,21 +140,35 @@ function resize() {
 }
 window.addEventListener('resize', resize);
 
+// Stage bounding box in canvas pixels
+function getStageRect() {
+  const w = canvas.width, h = canvas.height;
+  const stageW = w - 2 * STAGE_MARGIN_X;
+  const stageH = h - 2 * STAGE_MARGIN_Y;
+  // Fit to landscape aspect ratio based on grid units
+  const unitW = stageW / (STAGE_COLS_HALF * 2);
+  const unitH = stageH / (STAGE_ROWS_HALF * 2);
+  const unit = Math.min(unitW, unitH);
+  const actualW = unit * STAGE_COLS_HALF * 2;
+  const actualH = unit * STAGE_ROWS_HALF * 2;
+  const left = (w - actualW) / 2;
+  const top = (h - actualH) / 2;
+  return { left, top, width: actualW, height: actualH, unit, centerX: w / 2, centerY: h / 2 };
+}
+
 // Convert stage grid coords to canvas pixel coords
 // Stage: +X right, +Y up. Canvas: +X right, +Y down.
 function gridToPixel(gx, gy) {
-  const cx = canvas.width / 2;
-  const cy = canvas.height / 2;
-  return { px: cx + gx * GRID_SIZE, py: cy - gy * GRID_SIZE };
+  const s = getStageRect();
+  return { px: s.centerX + gx * s.unit, py: s.centerY - gy * s.unit };
 }
 
 // Convert canvas pixel coords to stage grid coords
 function pixelToGrid(px, py) {
-  const cx = canvas.width / 2;
-  const cy = canvas.height / 2;
+  const s = getStageRect();
   return {
-    gx: Math.round((px - cx) / GRID_SIZE),
-    gy: Math.round((cy - py) / GRID_SIZE)
+    gx: Math.round((px - s.centerX) / s.unit),
+    gy: Math.round((s.centerY - py) / s.unit)
   };
 }
 
@@ -168,70 +188,56 @@ function drawRoundedRect(ctx, x, y, w, h, r) {
 
 function draw() {
   const w = canvas.width, h = canvas.height;
-  const centerX = w / 2;
-  const centerY = h / 2;
+  const s = getStageRect();
+  const { left, top, width: stageW, height: stageH, unit, centerX, centerY } = s;
   ctx.clearRect(0, 0, w, h);
 
   // Background fill
   ctx.fillStyle = '#1a1a2e';
   ctx.fillRect(0, 0, w, h);
 
-  // Alternating column shading for subtle section pattern
-  // Calculate the leftmost grid-aligned column visible
-  const colsLeft = Math.ceil(centerX / GRID_SIZE);
-  const colsRight = Math.ceil((w - centerX) / GRID_SIZE);
-  const maxCols = Math.max(colsLeft, colsRight) + 1;
-  for (let c = -maxCols; c <= maxCols; c++) {
-    if (c % 2 === 0) {
-      const colX = centerX + c * GRID_SIZE - GRID_SIZE / 2;
-      ctx.fillStyle = '#1e2444';
-      ctx.fillRect(colX, 0, GRID_SIZE, h);
-    }
-  }
+  // Clip drawing to stage area for grid elements
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(left, top, stageW, stageH);
+  ctx.clip();
 
-  // Grid lines
+  // Grid lines within the stage
   ctx.strokeStyle = '#222244';
   ctx.lineWidth = 1;
-  // Vertical lines from center outward
-  for (let c = -maxCols; c <= maxCols; c++) {
-    const x = centerX + c * GRID_SIZE;
-    if (x < 0 || x > w) continue;
-    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke();
+  // Vertical lines
+  for (let c = -STAGE_COLS_HALF; c <= STAGE_COLS_HALF; c++) {
+    const x = centerX + c * unit;
+    ctx.beginPath(); ctx.moveTo(x, top); ctx.lineTo(x, top + stageH); ctx.stroke();
   }
-  // Horizontal lines from center outward
-  const rowsUp = Math.ceil(centerY / GRID_SIZE);
-  const rowsDown = Math.ceil((h - centerY) / GRID_SIZE);
-  const maxRows = Math.max(rowsUp, rowsDown) + 1;
-  for (let r = -maxRows; r <= maxRows; r++) {
-    const y = centerY + r * GRID_SIZE;
-    if (y < 0 || y > h) continue;
-    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
+  // Horizontal lines
+  for (let r = -STAGE_ROWS_HALF; r <= STAGE_ROWS_HALF; r++) {
+    const y = centerY + r * unit;
+    ctx.beginPath(); ctx.moveTo(left, y); ctx.lineTo(left + stageW, y); ctx.stroke();
   }
 
-  // Red crosshair through center
+  // Red crosshair through center, only within stage
   ctx.strokeStyle = '#e94560';
   ctx.lineWidth = 1.5;
-  // Vertical line
-  ctx.beginPath(); ctx.moveTo(centerX, 0); ctx.lineTo(centerX, h); ctx.stroke();
-  // Horizontal line
-  ctx.beginPath(); ctx.moveTo(0, centerY); ctx.lineTo(w, centerY); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(centerX, top); ctx.lineTo(centerX, top + stageH); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(left, centerY); ctx.lineTo(left + stageW, centerY); ctx.stroke();
 
-  // Red/coral rounded border rectangle
-  const borderInset = 30;
+  ctx.restore(); // remove clip
+
+  // Red/coral rounded border rectangle defining the stage
   ctx.strokeStyle = '#e94560';
   ctx.lineWidth = 2;
-  drawRoundedRect(ctx, borderInset, borderInset, w - 2 * borderInset, h - 2 * borderInset, 12);
+  drawRoundedRect(ctx, left, top, stageW, stageH, 12);
   ctx.stroke();
 
-  // Axis labels along the bottom (inside the border)
+  // Axis labels along the bottom, just below the red border
   ctx.fillStyle = '#999';
   ctx.font = 'bold 11px monospace';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'top';
-  const labelY = h - borderInset + 6;
-  for (let n = -8; n <= 8; n++) {
-    const lx = centerX + n * GRID_SIZE;
-    if (lx < borderInset || lx > w - borderInset) continue;
+  const labelY = top + stageH + 8;
+  for (let n = -STAGE_COLS_HALF; n <= STAGE_COLS_HALF; n++) {
+    const lx = centerX + n * unit;
     ctx.fillText(Math.abs(n).toString(), lx, labelY);
   }
 
