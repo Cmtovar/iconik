@@ -53,6 +53,11 @@ function draw() {
   ctx.fillStyle = '#1e1e38';
   ctx.fillRect(left - unit, top, sw + unit * 2, sh);
 
+  // Outer columns (2 on each side) slightly lighter
+  ctx.fillStyle = '#3d3d5c';
+  ctx.fillRect(left - unit, top, unit * 2, sh);           // left 2 columns
+  ctx.fillRect(left + sw - unit, top, unit * 2, sh);      // right 2 columns
+
   // Fine grid lines (every 1 unit)
   ctx.strokeStyle = '#4a4a70';
   ctx.lineWidth = 1;
