@@ -49,9 +49,9 @@ function draw() {
   const cy = top + sh / 2;
   const unitX = unit;
 
-  // Dark fill inside the stage border
+  // Dark fill (extends 1 unit beyond border on each side)
   ctx.fillStyle = '#1e1e38';
-  ctx.fillRect(left, top, sw, sh);
+  ctx.fillRect(left - unit, top, sw + unit * 2, sh);
 
   // Fine grid lines (every 1 unit)
   ctx.strokeStyle = '#4a4a70';
@@ -63,6 +63,7 @@ function draw() {
     ctx.beginPath();
     ctx.moveTo(x, top);
     ctx.lineTo(x, top + sh);
+
     ctx.stroke();
   }
 
@@ -70,8 +71,8 @@ function draw() {
   for (let i = -5; i <= 5; i++) {
     const y = cy + i * unit;
     ctx.beginPath();
-    ctx.moveTo(left, y);
-    ctx.lineTo(left + sw, y);
+    ctx.moveTo(left - unit, y);
+    ctx.lineTo(left + sw + unit, y);
     ctx.stroke();
   }
 
