@@ -89,15 +89,16 @@ function draw() {
   ctx.lineWidth = 2.5;
   ctx.beginPath();
   const r = 14;
-  ctx.moveTo(left + r, top);
-  ctx.lineTo(left + sw - r, top);
-  ctx.quadraticCurveTo(left + sw, top, left + sw, top + r);
-  ctx.lineTo(left + sw, top + sh - r);
-  ctx.quadraticCurveTo(left + sw, top + sh, left + sw - r, top + sh);
-  ctx.lineTo(left + r, top + sh);
-  ctx.quadraticCurveTo(left, top + sh, left, top + sh - r);
-  ctx.lineTo(left, top + r);
-  ctx.quadraticCurveTo(left, top, left + r, top);
+  const bLeft = left - unit, bTop = top, bW = sw + unit * 2, bH = sh;
+  ctx.moveTo(bLeft + r, bTop);
+  ctx.lineTo(bLeft + bW - r, bTop);
+  ctx.quadraticCurveTo(bLeft + bW, bTop, bLeft + bW, bTop + r);
+  ctx.lineTo(bLeft + bW, bTop + bH - r);
+  ctx.quadraticCurveTo(bLeft + bW, bTop + bH, bLeft + bW - r, bTop + bH);
+  ctx.lineTo(bLeft + r, bTop + bH);
+  ctx.quadraticCurveTo(bLeft, bTop + bH, bLeft, bTop + bH - r);
+  ctx.lineTo(bLeft, bTop + r);
+  ctx.quadraticCurveTo(bLeft, bTop, bLeft + r, bTop);
   ctx.closePath();
   ctx.stroke();
 
@@ -106,13 +107,13 @@ function draw() {
   ctx.lineWidth = 2;
   const dashLen = 8;
   // Top edge midpoint
-  ctx.beginPath(); ctx.moveTo(cx, top - dashLen); ctx.lineTo(cx, top + dashLen); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(cx, bTop - dashLen); ctx.lineTo(cx, bTop + dashLen); ctx.stroke();
   // Bottom edge midpoint
-  ctx.beginPath(); ctx.moveTo(cx, top + sh - dashLen); ctx.lineTo(cx, top + sh + dashLen); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(cx, bTop + bH - dashLen); ctx.lineTo(cx, bTop + bH + dashLen); ctx.stroke();
   // Left edge midpoint
-  ctx.beginPath(); ctx.moveTo(left - dashLen, cy); ctx.lineTo(left + dashLen, cy); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(bLeft - dashLen, cy); ctx.lineTo(bLeft + dashLen, cy); ctx.stroke();
   // Right edge midpoint
-  ctx.beginPath(); ctx.moveTo(left + sw - dashLen, cy); ctx.lineTo(left + sw + dashLen, cy); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(bLeft + bW - dashLen, cy); ctx.lineTo(bLeft + bW + dashLen, cy); ctx.stroke();
 
   // Axis labels at bottom
   ctx.fillStyle = '#777';
