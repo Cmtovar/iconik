@@ -930,6 +930,7 @@ canvas.addEventListener('mouseup', (e) => {
   if (!occupant || occupant === draggingDot) {
     draggingDot.gx = gx;
     draggingDot.gy = gy;
+    updateCurrentFormationSnapshotFromDots();
   }
   draggingDot = null;
   canvas.style.cursor = 'default';
@@ -1671,6 +1672,18 @@ function getSnapshotForFormation(formationNumber) {
     return snapshots[inPlaceIndex];
   }
   return null;
+}
+
+function updateCurrentFormationSnapshotFromDots() {
+  const formations = window._getFormations ? window._getFormations() : [];
+  const cur = window._getCurrentFormation ? window._getCurrentFormation(formations, currentTime) : null;
+  if (!cur || cur.type !== 'inplace') return;
+
+  const snap = getSnapshotForFormation(cur.number);
+  if (!snap) return;
+  snap.dots = dots.map(d => ({ ...d }));
+  snap.timestamp = new Date().toLocaleString();
+  renderSnapshots();
 }
 
 function animateDots() {
