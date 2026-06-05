@@ -137,18 +137,13 @@
     border: 1.5px solid #fff;
     flex-shrink: 0;
   }
-  .dot-item input {
-    background: transparent;
-    border: none;
-    border-bottom: 1px solid #444;
-    color: #eee;
-    font-family: monospace;
-    font-size: 11px;
-    width: 100%;
-    outline: none;
-    padding: 1px 0;
+  .dot-name-btn {
+    background: none; border: 1px solid #333; color: #999; padding: 2px 6px;
+    font-family: monospace; font-size: 11px; border-radius: 3px; cursor: pointer;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
-  .dot-item input:focus { border-bottom-color: #e94560; }
+  .dot-name-btn:hover { border-color: #e94560; color: #eee; }
+  .dot-name-btn.active { border-color: #e94560; color: #eee; background: #e94560; }
 
   #dots-list { display: flex; flex-direction: column; gap: 1px; }
 
@@ -312,6 +307,11 @@
     <div style="font-size:11px;color:#999;">Drag dots on the grid. Save formations. Build a timeline.</div>
 
     <h2>Dots</h2>
+    <div id="name-toggle" style="display:flex; gap:4px; margin-bottom:4px;">
+      <div style="width:10px; flex-shrink:0;"></div>
+      <button id="btn-all-idol" class="dot-name-btn active" style="flex:1;">Idol</button>
+      <button id="btn-all-member" class="dot-name-btn" style="flex:1;">Member</button>
+    </div>
     <div id="dots-list"></div>
 
     <button id="btn-save">Save Formation</button>
@@ -411,9 +411,22 @@ const COLORS = [
   '#e94560','#3498db','#2ecc71','#f39c12','#9b59b6',
   '#1abc9c','#e67e22','#e74c3c','#00bcd4'
 ];
+
+const MEMBERS = [
+  { idol: 'HANBIN',   member: 'Jordan' },
+  { idol: 'JIWOONG',  member: 'Caroline' },
+  { idol: 'MATTHEW',  member: 'Bela' },
+  { idol: 'TAERAE',   member: 'Gauri' },
+  { idol: 'GUNWOOK',  member: 'Dani' },
+  { idol: 'ZHANGHAO', member: 'Natalie' },
+  { idol: 'RICKY',    member: 'Imene' },
+  { idol: 'GYUVIN',   member: 'Cristian' },
+  { idol: 'YUJIN',    member: 'Lauren' },
+];
+
 const VISIBLE_WINDOW = 15; // +/- 15 seconds from center = 30 seconds total visible
 
-let dots = [];          // { id, gx, gy, color, name }
+let dots = [];          // { id, gx, gy, color, name, idol, member }
 let snapshots = [];     // { name, timestamp, dots: [...] }
 let markers = [];       // sorted array of seconds (formation boundaries)
 let formationCounter = 0;
@@ -510,7 +523,9 @@ function initTriangle() {
     gx: pos.gx,
     gy: pos.gy,
     color: COLORS[i],
-    name: ''
+    name: MEMBERS[i].idol,
+    idol: MEMBERS[i].idol,
+    member: MEMBERS[i].member,
   }));
 }
 
@@ -790,17 +805,30 @@ function renderDotsList() {
     const swatch = document.createElement('div');
     swatch.className = 'dot-swatch';
     swatch.style.background = dot.color || '#e94560';
-    const input = document.createElement('input');
-    input.type = 'text';
-    input.value = dot.name || '';
-    input.placeholder = 'Dot ' + dot.id;
-    input.addEventListener('input', () => {
-      dot.name = input.value;
+
+    const idolBtn = document.createElement('button');
+    idolBtn.className = 'dot-name-btn' + (dot.name === dot.idol ? ' active' : '');
+    idolBtn.textContent = dot.idol;
+    idolBtn.addEventListener('click', () => {
+      dot.name = dot.idol;
       drawGrid();
+      renderDotsList();
       autoSave();
     });
+
+    const memberBtn = document.createElement('button');
+    memberBtn.className = 'dot-name-btn' + (dot.name === dot.member ? ' active' : '');
+    memberBtn.textContent = dot.member;
+    memberBtn.addEventListener('click', () => {
+      dot.name = dot.member;
+      drawGrid();
+      renderDotsList();
+      autoSave();
+    });
+
     el.appendChild(swatch);
-    el.appendChild(input);
+    el.appendChild(idolBtn);
+    el.appendChild(memberBtn);
     list.appendChild(el);
   }
 }
@@ -1495,6 +1523,24 @@ function animateDots() {
 // ========================================================================
 initTriangle();
 autoRestore();
+
+// Column toggle buttons (Idol / Member)
+document.getElementById('btn-all-idol').addEventListener('click', () => {
+  dots.forEach(d => { d.name = d.idol; });
+  drawGrid();
+  renderDotsList();
+  autoSave();
+  document.getElementById('btn-all-idol').classList.add('active');
+  document.getElementById('btn-all-member').classList.remove('active');
+});
+document.getElementById('btn-all-member').addEventListener('click', () => {
+  dots.forEach(d => { d.name = d.member; });
+  drawGrid();
+  renderDotsList();
+  autoSave();
+  document.getElementById('btn-all-member').classList.add('active');
+  document.getElementById('btn-all-idol').classList.remove('active');
+});
 
 window.addEventListener('resize', resizeGrid);
 resizeGrid();
