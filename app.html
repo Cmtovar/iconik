@@ -154,17 +154,17 @@
   .dot-item {
     display: flex;
     align-items: center;
-    gap: 8px;
-    padding: 3px 6px;
+    gap: 6px;
+    padding: 1px 4px;
     background: #0f3460;
-    border-radius: 4px;
-    font-size: 12px;
+    border-radius: 3px;
+    font-size: 11px;
   }
   .dot-swatch {
-    width: 14px;
-    height: 14px;
+    width: 10px;
+    height: 10px;
     border-radius: 50%;
-    border: 2px solid #fff;
+    border: 1.5px solid #fff;
     flex-shrink: 0;
   }
   .dot-item input {
@@ -173,14 +173,14 @@
     border-bottom: 1px solid #444;
     color: #eee;
     font-family: monospace;
-    font-size: 12px;
+    font-size: 11px;
     width: 100%;
     outline: none;
-    padding: 2px 0;
+    padding: 1px 0;
   }
   .dot-item input:focus { border-bottom-color: #e94560; }
 
-  #dots-list { display: flex; flex-direction: column; gap: 3px; }
+  #dots-list { display: flex; flex-direction: column; gap: 1px; }
 
   .snapshot {
     background: #0f3460;
@@ -1114,7 +1114,7 @@ function setPlaying(state) {
     }
 
     // Formation-driven dot animation
-    animateDots();
+    try { animateDots(); } catch (e) { /* prevent animation errors from killing the loop */ }
 
     drawTimeline();
     updateInfo();
