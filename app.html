@@ -1104,7 +1104,15 @@ function renderSnapshots() {
     if (existing) {
       newSnaps.push(existing);
     } else {
-      newSnaps.push({ name: 'Formation ' + (fi + 1), dots: null, _startTime: ft });
+      // Default to previous formation's dots if available
+      let prevDots = null;
+      for (let p = newSnaps.length - 1; p >= 0; p--) {
+        if (newSnaps[p].dots && newSnaps[p].dots.length > 0) {
+          prevDots = newSnaps[p].dots.map(d => ({ ...d }));
+          break;
+        }
+      }
+      newSnaps.push({ name: 'Formation ' + (fi + 1), dots: prevDots, _startTime: ft });
     }
   }
   // Update _startTime on all snapshots
@@ -1273,7 +1281,16 @@ function activateFormationByTime(t) {
   if (snap && snap.dots && snap.dots.length > 0) {
     dots = snap.dots.map(d => ({ ...d }));
   } else {
-    initTriangle();
+    // Fall back to nearest previous formation's dots
+    let found = false;
+    for (let p = i - 1; p >= 0; p--) {
+      if (snapshots[p] && snapshots[p].dots && snapshots[p].dots.length > 0) {
+        dots = snapshots[p].dots.map(d => ({ ...d }));
+        found = true;
+        break;
+      }
+    }
+    if (!found) initTriangle();
   }
   drawGrid();
   renderDotsList();
