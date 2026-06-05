@@ -8,6 +8,13 @@
         ".write": true,
         ".validate": "newData.hasChildren(['data', 'updatedAt']) && newData.child('updatedAt').isNumber()"
       }
+    },
+    "locks": {
+      "edit": {
+        ".read": true,
+        ".write": true,
+        ".validate": "!newData.exists() || (newData.hasChildren(['owner', 'updatedAt', 'expiresAt']) && newData.child('owner').isString() && newData.child('updatedAt').isNumber() && newData.child('expiresAt').isNumber())"
+      }
     }
   }
 }
