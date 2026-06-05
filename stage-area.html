@@ -91,19 +91,6 @@ function draw() {
     }
   }
 
-  // Red crosshair (thin, within border)
-  ctx.strokeStyle = '#e94560';
-  ctx.lineWidth = 1;
-  // Vertical center line
-  ctx.beginPath();
-  ctx.moveTo(cx, top);
-  ctx.lineTo(cx, top + sh);
-  ctx.stroke();
-  // Horizontal center line
-  ctx.beginPath();
-  ctx.moveTo(left, cy);
-  ctx.lineTo(left + sw, cy);
-  ctx.stroke();
 
   // Red border (rounded, coral-ish)
   ctx.strokeStyle = '#e94560';
