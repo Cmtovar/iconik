@@ -30,36 +30,6 @@
     z-index: 20;
   }
 
-  #drop-overlay {
-    display: none;
-    position: absolute;
-    inset: 0;
-    background: rgba(233, 69, 96, 0.15);
-    border: 2px dashed #e94560;
-    border-radius: 0;
-    z-index: 10;
-    align-items: center;
-    justify-content: center;
-    font-size: 14px;
-    color: #e94560;
-    pointer-events: none;
-  }
-  #drop-overlay.visible { display: flex; }
-
-  #load-btn {
-    background: #e94560;
-    color: #eee;
-    border: none;
-    border-radius: 4px;
-    padding: 5px 10px;
-    font-family: monospace;
-    font-size: 12px;
-    cursor: pointer;
-    white-space: nowrap;
-    flex-shrink: 0;
-  }
-  #load-btn:hover { opacity: 0.85; }
-  #file-input { display: none; }
 
   #play-btn {
     background: none;
@@ -351,11 +321,7 @@
 
 <!-- ===== Audio Player ===== -->
 <div id="audio-player">
-  <div id="drop-overlay">Drop audio file here</div>
-  <input type="file" id="file-input" accept="audio/*">
-  <button id="load-btn">Load</button>
-  <button id="play-btn" disabled>&#9654;</button>
-  <span id="filename">No file loaded</span>
+  <button id="play-btn">&#9654;</button>
   <div id="scrub-wrap"><div id="scrub-fill"></div></div>
   <span id="time-display">00:00 / 00:00</span>
 </div>
@@ -485,8 +451,9 @@ let playing = false;
 let lastFrameTime = null;
 
 // Audio element
-const audio = new Audio();
-let audioLoaded = false;
+const audio = new Audio('iconik.mp3');
+audio.preload = 'auto';
+let audioLoaded = true;
 
 // ========================================================================
 //  Helpers
@@ -937,15 +904,10 @@ document.getElementById('btn-import').addEventListener('click', async () => {
 //  Audio Player
 // ========================================================================
 (function() {
-  const player    = document.getElementById('audio-player');
-  const fileInput = document.getElementById('file-input');
-  const loadBtn   = document.getElementById('load-btn');
   const playBtn   = document.getElementById('play-btn');
-  const fileLabel = document.getElementById('filename');
   const scrubWrap = document.getElementById('scrub-wrap');
   const scrubFill = document.getElementById('scrub-fill');
   const timeDisp  = document.getElementById('time-display');
-  const dropOver  = document.getElementById('drop-overlay');
 
   let scrubDragging = false;
 
@@ -954,32 +916,8 @@ document.getElementById('btn-import').addEventListener('click', async () => {
     timeDisp.textContent = fmt(audio.currentTime) + ' / ' + fmt(audio.duration);
   }
 
-  function loadFile(file) {
-    if (!file || !file.type.startsWith('audio/')) return;
-    const url = URL.createObjectURL(file);
-    audio.src = url;
-    audio.load();
-    fileLabel.textContent = file.name;
-    audioLoaded = true;
-    playBtn.disabled = false;
-    playBtn.innerHTML = '&#9654;';
-  }
-
-  loadBtn.addEventListener('click', () => fileInput.click());
-  fileInput.addEventListener('change', () => {
-    if (fileInput.files.length) loadFile(fileInput.files[0]);
-  });
-
-  // Drag and drop
-  let dragCounter = 0;
-  player.addEventListener('dragenter', (e) => { e.preventDefault(); dragCounter++; dropOver.classList.add('visible'); });
-  player.addEventListener('dragover', (e) => e.preventDefault());
-  player.addEventListener('dragleave', (e) => { e.preventDefault(); dragCounter--; if (dragCounter <= 0) { dragCounter = 0; dropOver.classList.remove('visible'); } });
-  player.addEventListener('drop', (e) => { e.preventDefault(); dragCounter = 0; dropOver.classList.remove('visible'); if (e.dataTransfer.files.length) loadFile(e.dataTransfer.files[0]); });
-
   // Play / Pause (synced with timeline)
   playBtn.addEventListener('click', () => {
-    if (!audioLoaded) return;
     if (audio.paused) {
       audio.play();
       setPlaying(true);
@@ -1001,7 +939,6 @@ document.getElementById('btn-import').addEventListener('click', async () => {
 
   // Scrub bar
   function seekAudio(e) {
-    if (!audioLoaded) return;
     const rect = scrubWrap.getBoundingClientRect();
     const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
     const t = ratio * audio.duration;
@@ -1021,7 +958,6 @@ document.getElementById('btn-import').addEventListener('click', async () => {
 
   // Expose for external sync
   window._audioUpdateUI = updateAudioUI;
-  window._loadFile = loadFile;
 })();
 
 // ========================================================================
