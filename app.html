@@ -449,10 +449,12 @@ let currentTime = 0;    // shared timeline time in seconds
 let playing = false;
 let lastFrameTime = null;
 let videoMode = 'zb1';
+let activePlayPromise = null;
+let isExplicitSeek = false;
 
 const VIDEO_SYNC = {
-  'reference-browser.mp4': { offset: 0.35 },
-  'dkdc-browser.mp4': { offset: 0.35 }
+  'reference-browser.mp4': { offset: 0 },
+  'dkdc-browser.mp4': { offset: 0 }
 };
 
 // Audio element
@@ -511,14 +513,31 @@ function memberForDot(id) {
   return MEMBERS[(id || 1) - 1] || MEMBERS[0];
 }
 
+function normalizeDotPosition(d) {
+  let gx = d && Number.isFinite(d.gx) ? d.gx : 0;
+  let gy = d && Number.isFinite(d.gy) ? d.gy : 0;
+
+  // Migrate older top-left grid coordinates into the current center-origin grid.
+  if (gx > 9 || gx < -9 || gy > 5 || gy < -5) {
+    gx = (gx - 15) / 1.5;
+    gy = (9.5 - gy) / 1.5;
+  }
+
+  return {
+    gx: Math.max(-9, Math.min(9, gx)),
+    gy: Math.max(-5, Math.min(5, gy))
+  };
+}
+
 function normalizeDot(d, index) {
   const id = d && d.id ? d.id : index + 1;
   const member = memberForDot(id);
   const name = d && d.name ? d.name : member.idol;
+  const pos = normalizeDotPosition(d);
   return {
     id,
-    gx: d && Number.isFinite(d.gx) ? d.gx : 0,
-    gy: d && Number.isFinite(d.gy) ? d.gy : 0,
+    gx: pos.gx,
+    gy: pos.gy,
     color: (d && d.color) || COLORS[(id - 1) % COLORS.length],
     name,
     idol: (d && d.idol) || member.idol,
@@ -685,11 +704,29 @@ function drawGrid() {
   ctx.fillStyle = '#1a1a1f';
   ctx.fillRect(0, 0, W, H);
 
-  // Stage dimensions — fit inside canvas with margins
+  // Stage dimensions — fit inside canvas with margins and avoid fixed overlays.
   const marginX = Math.max(40, W * 0.08);
   const marginY = Math.max(20, H * 0.04);
   const stageW = W - marginX * 2;
-  const stageH = H - marginY * 2 - 30; // reserve 30px for axis labels
+  const gridRect = canvas.parentElement.getBoundingClientRect();
+  const videoEl = document.getElementById('video-placeholder');
+  const timelineEl = document.getElementById('timeline-section');
+  const labelReserve = 44;
+
+  let topReserve = marginY;
+  if (videoEl) {
+    const videoRect = videoEl.getBoundingClientRect();
+    topReserve = Math.max(topReserve, videoRect.bottom - gridRect.top + 18);
+  }
+
+  let bottomLimit = H - marginY;
+  if (timelineEl) {
+    const timelineRect = timelineEl.getBoundingClientRect();
+    const timelineTop = timelineRect.top - gridRect.top;
+    if (timelineTop > topReserve) bottomLimit = Math.min(bottomLimit, timelineTop - 16);
+  }
+
+  const stageH = Math.max(120, bottomLimit - topReserve - labelReserve);
 
   // 16 wide x 10 tall, square cells
   const maxUnitW = stageW / 16;
@@ -699,7 +736,7 @@ function drawGrid() {
   const sh = unit * 10;
 
   const left = (W - sw) / 2;
-  const top = (H - sh - 20) / 2 + 70;
+  const top = topReserve;
   const cx = left + sw / 2;
   const cy = top + sh / 2;
 
@@ -901,6 +938,7 @@ canvas.addEventListener('mouseup', (e) => {
   if (!occupant || occupant === draggingDot) {
     draggingDot.gx = gx;
     draggingDot.gy = gy;
+    updateCurrentFormationSnapshotFromDots();
   }
   draggingDot = null;
   canvas.style.cursor = 'default';
@@ -1039,13 +1077,7 @@ document.getElementById('btn-import').addEventListener('click', async () => {
 
   // Play / Pause (synced with timeline)
   playBtn.addEventListener('click', () => {
-    if (audio.paused) {
-      audio.play();
-      setPlaying(true);
-    } else {
-      audio.pause();
-      setPlaying(false);
-    }
+    setPlaying(!playing);
   });
 
   audio.addEventListener('ended', () => {
@@ -1062,8 +1094,8 @@ document.getElementById('btn-import').addEventListener('click', async () => {
   function seekAudio(e) {
     const rect = scrubWrap.getBoundingClientRect();
     const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-    const t = ratio * audio.duration;
-    syncTimeToAll(t);
+    const t = ratio * getPlaybackDuration();
+    seekPlayback(t);
     updateAudioUI();
   }
 
@@ -1072,6 +1104,7 @@ document.getElementById('btn-import').addEventListener('click', async () => {
   document.addEventListener('mouseup', () => { scrubDragging = false; });
 
   audio.addEventListener('timeupdate', () => {
+    if (isExplicitSeek) return;
     currentTime = audio.currentTime;
     updateAudioUI();
   });
@@ -1085,6 +1118,9 @@ document.getElementById('btn-import').addEventListener('click', async () => {
 //  Sync: shared play/pause
 // ========================================================================
 function setPlaying(state) {
+  if (playing === state) {
+    return;
+  }
   playing = state;
   const playBtn = document.getElementById('play-btn');
   const tlPlayBtn = document.getElementById('tl-play-btn');
@@ -1093,13 +1129,22 @@ function setPlaying(state) {
     playBtn.innerHTML = '&#9646;&#9646;';
     tlPlayBtn.innerHTML = '&#9646;&#9646; Pause';
     syncVideosToClock(true);
-    if (audioLoaded && audio.paused) audio.play();
+    if (audioLoaded && audio.paused) {
+      activePlayPromise = audio.play();
+      if (activePlayPromise && typeof activePlayPromise.catch === 'function') {
+        activePlayPromise.catch(() => setPlaying(false));
+      }
+    }
     getActiveVideos().forEach(vid => {
-      if (vid.readyState >= 2 && vid.paused && vid.currentTime < vid.duration) vid.play();
+      if (vid.readyState >= 2 && vid.paused && vid.currentTime < vid.duration) {
+        const videoPlay = vid.play();
+        if (videoPlay && typeof videoPlay.catch === 'function') videoPlay.catch(() => {});
+      }
     });
   } else {
     playBtn.innerHTML = '&#9654;';
     tlPlayBtn.innerHTML = '&#9654; Play';
+    activePlayPromise = null;
     if (audioLoaded && !audio.paused) audio.pause();
     getAllVideos().forEach(vid => {
       vid.playbackRate = 1;
@@ -1108,17 +1153,38 @@ function setPlaying(state) {
   }
 }
 
-// Sync currentTime to all media elements (audio + video)
-function syncTimeToAll(t) {
-  currentTime = t;
+function getPlaybackDuration() {
+  if (audioLoaded && isFinite(audio.duration)) return audio.duration;
+  const vid = document.getElementById('ref-video');
+  if (vid && isFinite(vid.duration)) return vid.duration;
+  return Math.max(60, currentTime);
+}
+
+function clampPlaybackTime(t) {
+  const duration = getPlaybackDuration();
+  const max = isFinite(duration) ? duration : Math.max(60, t);
+  return Math.max(0, Math.min(t, max));
+}
+
+function getClockTime() {
+  if (audioLoaded && isFinite(audio.duration)) return audio.currentTime;
+  return currentTime;
+}
+
+// Explicit user seeks are the only place that hard-seeks every media element.
+function seekPlayback(t) {
+  currentTime = clampPlaybackTime(t);
+  isExplicitSeek = true;
   if (audioLoaded && isFinite(audio.duration)) {
-    audio.currentTime = Math.min(t, audio.duration);
+    const audioTarget = Math.min(currentTime, audio.duration);
+    audio.currentTime = audioTarget;
   }
   getAllVideos().forEach(vid => {
     if (!isFinite(vid.duration)) return;
     vid.currentTime = getVideoTargetTime(vid);
     vid.playbackRate = 1;
   });
+  isExplicitSeek = false;
 }
 
 function getAllVideos() {
@@ -1257,17 +1323,7 @@ function syncVideosToClock(force) {
 
   // Play/Pause (synced)
   tlPlayBtn.addEventListener('click', () => {
-    if (audioLoaded) {
-      if (audio.paused) {
-        audio.play();
-        setPlaying(true);
-      } else {
-        audio.pause();
-        setPlaying(false);
-      }
-    } else {
-      setPlaying(!playing);
-    }
+    setPlaying(!playing);
   });
 
   // Resize timeline canvas
@@ -1446,6 +1502,7 @@ function syncVideosToClock(force) {
 
   // ---- Scrollbar ----
   const scrollbar = document.getElementById('timelineScrollbar');
+  let scrollbarSeeking = false;
 
   function getMaxScrollTime() {
     const lastMarker = markers.length > 0 ? markers[markers.length - 1] : 0;
@@ -1455,26 +1512,36 @@ function syncVideosToClock(force) {
   function updateScrollbar() {
     const maxTime = getMaxScrollTime();
     scrollbar.max = maxTime;
-    scrollbar.value = currentTime;
+    const nextValue = String(Math.min(currentTime, maxTime));
+    if (scrollbar.value !== nextValue && !scrollbarSeeking) {
+      scrollbar.value = nextValue;
+    }
   }
 
   scrollbar.addEventListener('input', () => {
-    syncTimeToAll(parseFloat(scrollbar.value));
+    scrollbarSeeking = true;
+    seekPlayback(parseFloat(scrollbar.value));
   });
+  scrollbar.addEventListener('mousedown', () => { scrollbarSeeking = true; });
+  scrollbar.addEventListener('touchstart', () => { scrollbarSeeking = true; });
+  window.addEventListener('mouseup', () => { scrollbarSeeking = false; });
+  window.addEventListener('touchend', () => { scrollbarSeeking = false; });
 
   // ---- Mouse wheel panning on timeline canvas ----
   tlCanvas.addEventListener('wheel', (e) => {
     e.preventDefault();
     const delta = e.deltaX !== 0 ? e.deltaX : e.deltaY;
     const panAmount = delta * 0.05;
-    syncTimeToAll(Math.max(0, currentTime + panAmount));
+    seekPlayback(currentTime + panAmount);
   }, { passive: false });
 
   // ---- Drag timeline to seek ----
   let draggingTimeline = false;
+  let timelineSeekCenter = 0;
 
   // ---- Drag marker boundaries ----
   let draggingMarkerIndex = -1;
+  let markerDragCenter = 0;
   const MARKER_GRAB_PX = 8;
 
   function findNearbyMarker(clientX) {
@@ -1494,13 +1561,13 @@ function syncVideosToClock(force) {
     return bestIdx;
   }
 
-  function seekToX(clientX) {
+  function seekToX(clientX, centerTime) {
     const rect = tlCanvas.getBoundingClientRect();
     const clickX = clientX - rect.left;
     const w = rect.width;
-    const t = xToTime(clickX, currentTime, w);
+    const t = xToTime(clickX, centerTime, w);
     if (t >= 0) {
-      syncTimeToAll(t);
+      seekPlayback(t);
       // Update the min/sec inputs to show current time for easy "Add Marker"
       const m = Math.floor(currentTime / 60);
       const s = Math.floor(currentTime % 60);
@@ -1522,13 +1589,15 @@ function syncVideosToClock(force) {
     const idx = findNearbyMarker(e.clientX);
     if (idx >= 0) {
       draggingMarkerIndex = idx;
+      markerDragCenter = currentTime;
       tlCanvas.style.cursor = 'col-resize';
       e.preventDefault();
       return;
     }
     // Otherwise, normal timeline seek drag
     draggingTimeline = true;
-    seekToX(e.clientX);
+    timelineSeekCenter = currentTime;
+    seekToX(e.clientX, timelineSeekCenter);
   });
 
   window.addEventListener('mousemove', (e) => {
@@ -1536,7 +1605,7 @@ function syncVideosToClock(force) {
       const rect = tlCanvas.getBoundingClientRect();
       const w = rect.width;
       const mouseX = e.clientX - rect.left;
-      let newTime = xToTime(mouseX, currentTime, w);
+      let newTime = xToTime(mouseX, markerDragCenter, w);
 
       if (newTime < 0) newTime = 0;
 
@@ -1556,20 +1625,21 @@ function syncVideosToClock(force) {
       return;
     }
     if (draggingTimeline) {
-      seekToX(e.clientX);
+      seekToX(e.clientX, timelineSeekCenter);
     }
   });
 
   window.addEventListener('mouseup', () => {
     if (draggingMarkerIndex >= 0) {
-      markers[draggingMarkerIndex] = Math.round(markers[draggingMarkerIndex]);
       if (markers[draggingMarkerIndex] < 1) markers[draggingMarkerIndex] = 1;
       markers.sort((a, b) => a - b);
       draggingMarkerIndex = -1;
+      markerDragCenter = 0;
       tlCanvas.style.cursor = '';
       autoSave();
     }
     draggingTimeline = false;
+    timelineSeekCenter = 0;
   });
 
   // ===== Main animation tick =====
@@ -1577,7 +1647,7 @@ function syncVideosToClock(force) {
     // Advance time
     if (playing) {
       if (audioLoaded) {
-        currentTime = audio.currentTime;
+        currentTime = getClockTime();
       } else {
         if (lastFrameTime !== null) {
           const dt = (now - lastFrameTime) / 1000;
@@ -1589,7 +1659,7 @@ function syncVideosToClock(force) {
     } else {
       lastFrameTime = null;
       if (audioLoaded) {
-        currentTime = audio.currentTime;
+        currentTime = getClockTime();
       }
     }
 
@@ -1626,6 +1696,18 @@ function getSnapshotForFormation(formationNumber) {
     return snapshots[inPlaceIndex];
   }
   return null;
+}
+
+function updateCurrentFormationSnapshotFromDots() {
+  const formations = window._getFormations ? window._getFormations() : [];
+  const cur = window._getCurrentFormation ? window._getCurrentFormation(formations, currentTime) : null;
+  if (!cur || cur.type !== 'inplace') return;
+
+  const snap = getSnapshotForFormation(cur.number);
+  if (!snap) return;
+  snap.dots = dots.map(d => ({ ...d }));
+  snap.timestamp = new Date().toLocaleString();
+  renderSnapshots();
 }
 
 function animateDots() {
