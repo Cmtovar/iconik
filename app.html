@@ -329,8 +329,6 @@
       <button id="btn-export">Export</button>
       <button id="btn-import">Import</button>
     </div>
-    <button id="btn-edit-mode">Enter Edit Mode</button>
-    <div id="edit-status" style="font-size:11px;color:#999;">View mode</div>
     <div id="cloud-status" style="font-size:11px;color:#999;">Cloud: connecting...</div>
   </div>
 
@@ -518,20 +516,6 @@ const firebaseConfig = {
 
 let cloudRef = null;
 let cloudSaveTimer = null;
-let editLockRef = null;
-let editLockTimer = null;
-let editMode = false;
-let activeEditorId = null;
-const EDIT_LOCK_TIMEOUT_MS = 120000;
-const editClientId = (() => {
-  const key = 'iconik_edit_client_id';
-  let id = localStorage.getItem(key);
-  if (!id) {
-    id = (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + '-' + String(Math.random()).slice(2));
-    localStorage.setItem(key, id);
-  }
-  return id;
-})();
 
 function setCloudStatus(text, isError) {
   const el = document.getElementById('cloud-status');
@@ -540,35 +524,6 @@ function setCloudStatus(text, isError) {
   el.style.color = isError ? '#e94560' : '#999';
 }
 
-function setEditStatus(text, isError) {
-  const el = document.getElementById('edit-status');
-  if (!el) return;
-  el.textContent = text;
-  el.style.color = isError ? '#e94560' : '#999';
-}
-
-function requireEditMode() {
-  if (editMode) return true;
-  setEditStatus('View mode - enter edit mode to change formations', true);
-  return false;
-}
-
-function updateEditControls() {
-  const ids = ['btn-save', 'btn-import', 'btn-all-idol', 'btn-all-member', 'addMarkerBtn', 'markerMin', 'markerSec'];
-  ids.forEach(id => {
-    const el = document.getElementById(id);
-    if (el) el.disabled = !editMode;
-  });
-  const btn = document.getElementById('btn-edit-mode');
-  if (btn) btn.textContent = editMode ? 'Exit Edit Mode' : 'Enter Edit Mode';
-  if (editMode) {
-    setEditStatus('Edit mode - saving changes to cloud');
-  } else if (activeEditorId && activeEditorId !== editClientId) {
-    setEditStatus('View mode - another client is editing');
-  } else {
-    setEditStatus('View mode');
-  }
-}
 
 function memberForDot(id) {
   return MEMBERS[(id || 1) - 1] || MEMBERS[0];
@@ -656,7 +611,7 @@ function stateScore(state) {
 function autoSave() {
   const state = getAppState();
   IconikStorage.save('app', state);
-  if (editMode) queueCloudSave(state);
+  queueCloudSave(state);
 }
 
 function autoRestore() {
@@ -671,7 +626,7 @@ function queueCloudSave(state) {
 }
 
 async function saveToCloud(state) {
-  if (!cloudRef || !editMode) return;
+  if (!cloudRef) return;
   try {
     setCloudStatus('saving...');
     await cloudRef.set({
@@ -695,84 +650,6 @@ function applyRestoredState(state, statusText) {
   if (statusText) setCloudStatus(statusText);
 }
 
-function watchEditLock() {
-  if (!editLockRef) return;
-  editLockRef.on('value', snap => {
-    const lock = snap.val();
-    const now = Date.now();
-    const isActive = lock && lock.owner && lock.expiresAt > now;
-    activeEditorId = isActive ? lock.owner : null;
-    if (editMode && activeEditorId && activeEditorId !== editClientId) {
-      editMode = false;
-      clearInterval(editLockTimer);
-      editLockTimer = null;
-    }
-    updateEditControls();
-    renderDotsList();
-    renderSnapshots();
-  });
-}
-
-function refreshEditLock() {
-  if (!editMode || !editLockRef) return;
-  const now = Date.now();
-  editLockRef.update({
-    owner: editClientId,
-    updatedAt: now,
-    expiresAt: now + EDIT_LOCK_TIMEOUT_MS
-  });
-}
-
-async function enterEditMode() {
-  if (!editLockRef) {
-    setEditStatus('Cloud lock unavailable', true);
-    return;
-  }
-  const now = Date.now();
-  editLockRef.transaction(lock => {
-    if (!lock || !lock.owner || lock.expiresAt <= now || lock.owner === editClientId) {
-      return {
-        owner: editClientId,
-        updatedAt: now,
-        expiresAt: now + EDIT_LOCK_TIMEOUT_MS
-      };
-    }
-    return;
-  }, (err, committed, snap) => {
-    if (err) {
-      setEditStatus('Could not enter edit mode', true);
-      return;
-    }
-    if (!committed) {
-      const lock = snap && snap.val();
-      activeEditorId = lock && lock.owner ? lock.owner : null;
-      editMode = false;
-      updateEditControls();
-      return;
-    }
-    editMode = true;
-    activeEditorId = editClientId;
-    editLockRef.onDisconnect().remove();
-    clearInterval(editLockTimer);
-    editLockTimer = setInterval(refreshEditLock, 30000);
-    updateEditControls();
-    if (hasMeaningfulState(getAppState())) autoSave();
-  });
-}
-
-async function exitEditMode() {
-  clearInterval(editLockTimer);
-  editLockTimer = null;
-  editMode = false;
-  if (editLockRef) {
-    const snap = await editLockRef.get();
-    const lock = snap.val();
-    if (lock && lock.owner === editClientId) await editLockRef.remove();
-  }
-  activeEditorId = null;
-  updateEditControls();
-}
-
 async function startCloudSync() {
   if (!window.firebase || !firebase.apps) {
     setCloudStatus('offline', true);
@@ -782,9 +659,7 @@ async function startCloudSync() {
   try {
     if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
     cloudRef = firebase.database().ref('backups/default');
-    editLockRef = firebase.database().ref('locks/edit');
     setCloudStatus('connected');
-    watchEditLock();
 
     const localState = getAppState();
     const snap = await cloudRef.get();
@@ -794,10 +669,14 @@ async function startCloudSync() {
       if (!hasMeaningfulState(localState) || stateScore(cloudState) >= stateScore(localState)) {
         applyRestoredState(cloudState, 'restored cloud backup');
       } else {
-        setCloudStatus('local data loaded; enter edit mode to save');
+        // Local has more data — push it to cloud
+        queueCloudSave(localState);
+        setCloudStatus('local data saved to cloud');
       }
     } else if (hasMeaningfulState(localState)) {
-      setCloudStatus('no cloud backup; enter edit mode to save local data');
+      // No cloud backup yet — push local data up
+      queueCloudSave(localState);
+      setCloudStatus('saved local data to cloud');
     } else if (snap.exists()) {
       setCloudStatus('backup is empty');
     } else {
@@ -1065,7 +944,6 @@ function findDotNearPixel(px, py) {
 // Drag handling on grid
 canvas.addEventListener('mousedown', (e) => {
   if (e.button !== 0) return;
-  if (!editMode) return;
   const rect = canvas.getBoundingClientRect();
   const px = e.clientX - rect.left;
   const py = e.clientY - rect.top;
@@ -1090,7 +968,7 @@ canvas.addEventListener('mousemove', (e) => {
     drawGrid();
   } else {
     const prev = hoveredDot;
-    hoveredDot = editMode ? findDotNearPixel(px, py) : null;
+    hoveredDot = findDotNearPixel(px, py);
     if (hoveredDot !== prev) {
       canvas.style.cursor = hoveredDot ? 'grab' : 'default';
       drawGrid();
@@ -1100,12 +978,6 @@ canvas.addEventListener('mousemove', (e) => {
 
 canvas.addEventListener('mouseup', (e) => {
   if (!draggingDot) return;
-  if (!editMode) {
-    draggingDot = null;
-    canvas.style.cursor = 'default';
-    drawGrid();
-    return;
-  }
   const rect = canvas.getBoundingClientRect();
   const px = e.clientX - rect.left;
   const py = e.clientY - rect.top;
@@ -1150,9 +1022,7 @@ function renderDotsList() {
     const idolBtn = document.createElement('button');
     idolBtn.className = 'dot-name-btn' + (dot.name === dot.idol ? ' active' : '');
     idolBtn.textContent = dot.idol;
-    idolBtn.disabled = !editMode;
     idolBtn.addEventListener('click', () => {
-      if (!requireEditMode()) return;
       dot.name = dot.idol;
       drawGrid();
       renderDotsList();
@@ -1162,9 +1032,7 @@ function renderDotsList() {
     const memberBtn = document.createElement('button');
     memberBtn.className = 'dot-name-btn' + (dot.name === dot.member ? ' active' : '');
     memberBtn.textContent = dot.member;
-    memberBtn.disabled = !editMode;
     memberBtn.addEventListener('click', () => {
-      if (!requireEditMode()) return;
       dot.name = dot.member;
       drawGrid();
       renderDotsList();
@@ -1182,7 +1050,6 @@ function renderDotsList() {
 //  Sidebar: Snapshots (Formations)
 // ========================================================================
 document.getElementById('btn-save').addEventListener('click', () => {
-  if (!requireEditMode()) return;
   formationCounter++;
   const snap = {
     name: 'Formation ' + formationCounter,
@@ -1206,16 +1073,13 @@ function renderSnapshots() {
       '<button class="snap-delete" data-i="' + i + '">&times;</button>';
     el.addEventListener('click', (e) => {
       if (e.target.classList.contains('snap-delete')) return;
-      if (!requireEditMode()) return;
       dots = snap.dots.map(d => ({ ...d }));
       drawGrid();
       renderDotsList();
       autoSave();
     });
     const deleteBtn = el.querySelector('.snap-delete');
-    deleteBtn.disabled = !editMode;
     deleteBtn.addEventListener('click', () => {
-      if (!requireEditMode()) return;
       snapshots.splice(i, 1);
       renderSnapshots();
       autoSave();
@@ -1232,7 +1096,6 @@ document.getElementById('btn-export').addEventListener('click', () => {
 });
 
 document.getElementById('btn-import').addEventListener('click', async () => {
-  if (!requireEditMode()) return;
   try {
     const data = await IconikStorage.importJSON();
     applyAppState(data);
@@ -1609,7 +1472,6 @@ function syncAudioToClock(force) {
 
   // Add marker
   function addMarker() {
-    if (!requireEditMode()) return;
     let t;
     if (markerMin.value === '' && markerSec.value === '') {
       // No input -- stamp exactly at playhead position
@@ -1930,17 +1792,13 @@ function syncAudioToClock(force) {
     if (draggingMarkerIndex >= 0) return;
     if (draggingTimeline) return;
     const idx = findNearbyMarker(e.clientX);
-    tlCanvas.style.cursor = idx >= 0 && editMode ? 'col-resize' : '';
+    tlCanvas.style.cursor = idx >= 0 ? 'col-resize' : '';
   });
 
   tlCanvas.addEventListener('mousedown', (e) => {
     // Check if near a marker boundary first -- marker drag takes priority
     const idx = findNearbyMarker(e.clientX);
     if (idx >= 0) {
-      if (!requireEditMode()) {
-        e.preventDefault();
-        return;
-      }
       draggingMarkerIndex = idx;
       markerDragCenter = currentTime;
       tlCanvas.style.cursor = 'col-resize';
@@ -1957,7 +1815,6 @@ function syncAudioToClock(force) {
 
   window.addEventListener('mousemove', (e) => {
     if (draggingMarkerIndex >= 0) {
-      if (!editMode) return;
       const rect = tlCanvas.getBoundingClientRect();
       const w = rect.width;
       const mouseX = e.clientX - rect.left;
@@ -2138,7 +1995,6 @@ autoRestore();
 
 // Column toggle buttons (Idol / Member)
 document.getElementById('btn-all-idol').addEventListener('click', () => {
-  if (!requireEditMode()) return;
   dots.forEach(d => { d.name = d.idol; });
   drawGrid();
   renderDotsList();
@@ -2147,7 +2003,6 @@ document.getElementById('btn-all-idol').addEventListener('click', () => {
   document.getElementById('btn-all-member').classList.remove('active');
 });
 document.getElementById('btn-all-member').addEventListener('click', () => {
-  if (!requireEditMode()) return;
   dots.forEach(d => { d.name = d.member; });
   drawGrid();
   renderDotsList();
@@ -2156,19 +2011,10 @@ document.getElementById('btn-all-member').addEventListener('click', () => {
   document.getElementById('btn-all-idol').classList.remove('active');
 });
 
-document.getElementById('btn-edit-mode').addEventListener('click', () => {
-  if (editMode) {
-    exitEditMode();
-  } else {
-    enterEditMode();
-  }
-});
-
 window.addEventListener('resize', resizeGrid);
 resizeGrid();
 renderDotsList();
 renderSnapshots();
-updateEditControls();
 startCloudSync();
 cacheMediaAssets();
 </script>
