@@ -1108,7 +1108,7 @@ function renderSnapshots() {
       // Default to previous explicitly saved formation's dots
       let prevDots = null;
       for (let p = newSnaps.length - 1; p >= 0; p--) {
-        if (newSnaps[p]._saved && newSnaps[p].dots && newSnaps[p].dots.length > 0) {
+        if ((newSnaps[p]._saved || newSnaps[p].timestamp) && newSnaps[p].dots && newSnaps[p].dots.length > 0) {
           prevDots = newSnaps[p].dots.map(d => ({ ...d }));
           break;
         }
@@ -1285,7 +1285,7 @@ function activateFormationByTime(t) {
     // Fall back to nearest previous explicitly saved formation's dots
     let found = false;
     for (let p = i - 1; p >= 0; p--) {
-      if (snapshots[p] && snapshots[p]._saved && snapshots[p].dots && snapshots[p].dots.length > 0) {
+      if (snapshots[p] && (snapshots[p]._saved || snapshots[p].timestamp) && snapshots[p].dots && snapshots[p].dots.length > 0) {
         dots = snapshots[p].dots.map(d => ({ ...d }));
         found = true;
         break;
