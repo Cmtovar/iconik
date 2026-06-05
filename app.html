@@ -1188,6 +1188,28 @@ function renderSnapshots() {
   });
 }
 
+// Scroll list so item at index i has ~2 items visible above and below
+function scrollListWithBuffer(list, i) {
+  const items = list.children;
+  if (!items[i]) return;
+  const item = items[i];
+  const itemTop = item.offsetTop - list.offsetTop;
+  const itemBottom = itemTop + item.offsetHeight;
+  const listH = list.clientHeight;
+  // Calculate how much buffer space 2 items need above and below
+  let bufferAbove = 0;
+  for (let b = 1; b <= 2 && i - b >= 0; b++) bufferAbove += items[i - b].offsetHeight + 6;
+  let bufferBelow = 0;
+  for (let b = 1; b <= 2 && i + b < items.length; b++) bufferBelow += items[i + b].offsetHeight + 6;
+  const needTop = itemTop - bufferAbove;
+  const needBottom = itemBottom + bufferBelow;
+  if (needTop < list.scrollTop) {
+    list.scrollTo({ top: needTop, behavior: 'smooth' });
+  } else if (needBottom > list.scrollTop + listH) {
+    list.scrollTo({ top: needBottom - listH, behavior: 'smooth' });
+  }
+}
+
 // Load dots for an in-place formation by index and scroll sidebar to it
 function activateFormationByTime(t) {
   const formations = window._getFormations ? window._getFormations() : [];
@@ -1204,15 +1226,8 @@ function activateFormationByTime(t) {
   }
   drawGrid();
   renderDotsList();
-  // Scroll sidebar with 2-formation buffer
   const list = document.getElementById('snapshots-list');
-  if (list && list.children[i]) {
-    const items = list.children;
-    const ahead = Math.min(i + 2, items.length - 1);
-    const behind = Math.max(i - 2, 0);
-    items[ahead].scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-    items[behind].scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-  }
+  if (list && list.children[i]) scrollListWithBuffer(list, i);
   renderSnapshots();
 }
 
@@ -1227,12 +1242,7 @@ function updateActiveFormation() {
   for (let i = 0; i < items.length; i++) {
     const isCurrent = cur && inPlaceFormations[i] && cur.number === inPlaceFormations[i].number;
     items[i].style.borderColor = isCurrent ? '#e94560' : '';
-    if (isCurrent) {
-      const ahead = Math.min(i + 2, items.length - 1);
-      const behind = Math.max(i - 2, 0);
-      items[ahead].scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-      items[behind].scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-    }
+    if (isCurrent) scrollListWithBuffer(list, i);
   }
 }
 
