@@ -117,10 +117,10 @@ function draw() {
 
   // Axis labels at bottom
   ctx.fillStyle = '#777';
-  ctx.font = '12px monospace';
+  ctx.font = '16px monospace';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'top';
-  const labelY = top + sh + 10;
+  const labelY = top + sh + 20;
   for (let i = -8; i <= 8; i++) {
     ctx.fillText(Math.abs(i).toString(), cx + i * unitX, labelY);
   }
