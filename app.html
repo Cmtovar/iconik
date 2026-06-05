@@ -445,8 +445,8 @@ let activePlayPromise = null;
 let isExplicitSeek = false;
 
 const VIDEO_SYNC = {
-  'reference-browser.mp4': { offset: 0.35 },
-  'dkdc-browser.mp4': { offset: 0.35 }
+  'reference-browser.mp4': { offset: 0 },
+  'dkdc-browser.mp4': { offset: 0 }
 };
 
 // Audio element
@@ -505,14 +505,31 @@ function memberForDot(id) {
   return MEMBERS[(id || 1) - 1] || MEMBERS[0];
 }
 
+function normalizeDotPosition(d) {
+  let gx = d && Number.isFinite(d.gx) ? d.gx : 0;
+  let gy = d && Number.isFinite(d.gy) ? d.gy : 0;
+
+  // Migrate older top-left grid coordinates into the current center-origin grid.
+  if (gx > 9 || gx < -9 || gy > 5 || gy < -5) {
+    gx = (gx - 15) / 1.5;
+    gy = (9.5 - gy) / 1.5;
+  }
+
+  return {
+    gx: Math.max(-9, Math.min(9, gx)),
+    gy: Math.max(-5, Math.min(5, gy))
+  };
+}
+
 function normalizeDot(d, index) {
   const id = d && d.id ? d.id : index + 1;
   const member = memberForDot(id);
   const name = d && d.name ? d.name : member.idol;
+  const pos = normalizeDotPosition(d);
   return {
     id,
-    gx: d && Number.isFinite(d.gx) ? d.gx : 0,
-    gy: d && Number.isFinite(d.gy) ? d.gy : 0,
+    gx: pos.gx,
+    gy: pos.gy,
     color: (d && d.color) || COLORS[(id - 1) % COLORS.length],
     name,
     idol: (d && d.idol) || member.idol,
@@ -1150,9 +1167,7 @@ function seekPlayback(t) {
   isExplicitSeek = true;
   if (audioLoaded && isFinite(audio.duration)) {
     const audioTarget = Math.min(currentTime, audio.duration);
-    if (Math.abs(audio.currentTime - audioTarget) > 0.005) {
-      audio.currentTime = audioTarget;
-    }
+    audio.currentTime = audioTarget;
   }
   const vid = document.getElementById('ref-video');
   if (vid && isFinite(vid.duration)) {
