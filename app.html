@@ -1429,6 +1429,24 @@ function updateOffsetDisplay() {
     }
   });
 
+  // Double-click on timeline to insert a short formation (two markers 0.5s apart)
+  tlCanvas.addEventListener('dblclick', (e) => {
+    const rect = tlCanvas.getBoundingClientRect();
+    const clickX = e.clientX - rect.left;
+    const w = rect.width;
+    const t = Math.round(xToTime(clickX, currentTime, w) * 10) / 10;
+    const t2 = Math.round((t + 0.5) * 10) / 10;
+    if (t <= 0) return;
+    let added = false;
+    if (!markers.includes(t)) { markers.push(t); added = true; }
+    if (!markers.includes(t2)) { markers.push(t2); added = true; }
+    if (added) {
+      markers.sort((a, b) => a - b);
+      renderSnapshots();
+      autoSave();
+    }
+  });
+
   // Play/Pause (synced)
   tlPlayBtn.addEventListener('click', () => {
     setPlaying(!playing);
