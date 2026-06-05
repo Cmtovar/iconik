@@ -677,11 +677,29 @@ function drawGrid() {
   ctx.fillStyle = '#1a1a1f';
   ctx.fillRect(0, 0, W, H);
 
-  // Stage dimensions — fit inside canvas with margins
+  // Stage dimensions — fit inside canvas with margins and avoid fixed overlays.
   const marginX = Math.max(40, W * 0.08);
   const marginY = Math.max(20, H * 0.04);
   const stageW = W - marginX * 2;
-  const stageH = H - marginY * 2 - 30; // reserve 30px for axis labels
+  const gridRect = canvas.parentElement.getBoundingClientRect();
+  const videoEl = document.getElementById('video-placeholder');
+  const timelineEl = document.getElementById('timeline-section');
+  const labelReserve = 44;
+
+  let topReserve = marginY;
+  if (videoEl) {
+    const videoRect = videoEl.getBoundingClientRect();
+    topReserve = Math.max(topReserve, videoRect.bottom - gridRect.top + 18);
+  }
+
+  let bottomLimit = H - marginY;
+  if (timelineEl) {
+    const timelineRect = timelineEl.getBoundingClientRect();
+    const timelineTop = timelineRect.top - gridRect.top;
+    if (timelineTop > topReserve) bottomLimit = Math.min(bottomLimit, timelineTop - 16);
+  }
+
+  const stageH = Math.max(120, bottomLimit - topReserve - labelReserve);
 
   // 16 wide x 10 tall, square cells
   const maxUnitW = stageW / 16;
@@ -691,7 +709,7 @@ function drawGrid() {
   const sh = unit * 10;
 
   const left = (W - sw) / 2;
-  const top = (H - sh - 20) / 2 + 70;
+  const top = topReserve;
   const cx = left + sw / 2;
   const cy = top + sh / 2;
 
