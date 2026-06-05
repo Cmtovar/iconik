@@ -330,7 +330,7 @@
   <div id="grid-container">
     <div id="video-toggle" style="position:absolute; top:10px; right:10px; z-index:6; display:flex; gap:4px;">
       <button class="vid-src-btn active" data-src="reference-browser.mp4" style="background:#e94560; border:1px solid #e94560; color:#eee; font-family:monospace; font-size:11px; padding:4px 10px; border-radius:4px; cursor:pointer;">ZB1</button>
-      <button class="vid-src-btn" data-src="dkdc.mp4" style="background:none; border:1px solid #e94560; color:#e94560; font-family:monospace; font-size:11px; padding:4px 10px; border-radius:4px; cursor:pointer;">DKDC</button>
+      <button class="vid-src-btn" data-src="dkdc-browser.mp4" style="background:none; border:1px solid #e94560; color:#e94560; font-family:monospace; font-size:11px; padding:4px 10px; border-radius:4px; cursor:pointer;">DKDC</button>
     </div>
     <div id="video-placeholder" style="position:absolute; top:10px; left:50%; transform:translateX(-50%); width:60%; aspect-ratio:16/9; border:1px solid #0f3460; border-radius:8px; overflow:hidden; z-index:5;">
         <video id="ref-video" muted preload="auto" style="display:block; width:100%; height:100%; object-fit:contain;">
@@ -441,6 +441,11 @@ let formationCounter = 0;
 let currentTime = 0;    // shared timeline time in seconds
 let playing = false;
 let lastFrameTime = null;
+
+const VIDEO_SYNC = {
+  'reference-browser.mp4': { offset: 0.35 },
+  'dkdc-browser.mp4': { offset: 0.35 }
+};
 
 // Audio element
 const audio = new Audio('iconik.mp3');
@@ -1102,16 +1107,32 @@ function syncTimeToAll(t) {
   }
   const vid = document.getElementById('ref-video');
   if (vid && isFinite(vid.duration)) {
-    vid.currentTime = Math.min(t, vid.duration);
+    vid.currentTime = getVideoTargetTime(vid);
     vid.playbackRate = 1;
   }
+}
+
+function getVideoSourceName(vid) {
+  const source = vid && vid.querySelector('source');
+  if (!source) return '';
+  return (source.getAttribute('src') || '').split('/').pop();
+}
+
+function getVideoOffset(vid) {
+  const meta = VIDEO_SYNC[getVideoSourceName(vid)];
+  return meta ? meta.offset : 0;
+}
+
+function getVideoTargetTime(vid) {
+  if (!vid || !isFinite(vid.duration)) return currentTime;
+  return Math.max(0, Math.min(currentTime + getVideoOffset(vid), vid.duration));
 }
 
 function syncVideoToClock(force) {
   const vid = document.getElementById('ref-video');
   if (!vid || !isFinite(vid.duration)) return;
 
-  const target = Math.min(currentTime, vid.duration);
+  const target = getVideoTargetTime(vid);
   const drift = target - vid.currentTime;
   if (force || Math.abs(drift) > 1) {
     vid.currentTime = target;
@@ -1703,12 +1724,14 @@ startCloudSync();
     btn.addEventListener('click', () => {
       const src = btn.dataset.src;
       if (vid.querySelector('source').src.endsWith(src)) return;
-      const wasPlaying = !vid.paused;
+      const shouldResume = playing;
       vid.querySelector('source').src = src;
       vid.playbackRate = 1;
       vid.load();
-      vid.currentTime = currentTime;
-      if (wasPlaying) vid.play();
+      if (isFinite(vid.duration)) {
+        vid.currentTime = getVideoTargetTime(vid);
+      }
+      if (shouldResume) vid.play();
       btns.forEach(b => {
         b.style.background = 'none';
         b.style.color = '#e94560';
