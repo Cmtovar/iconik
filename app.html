@@ -1145,8 +1145,36 @@ function renderSnapshots() {
     info.className = 'snap-info';
     info.textContent = fmt(f.startTime) + (f.endTime !== null ? ' – ' + fmt(f.endTime) : '+');
 
+    const delBtn = document.createElement('button');
+    delBtn.textContent = '\u00d7';
+    delBtn.title = 'Delete this formation';
+    delBtn.style.cssText = 'background:none;border:none;cursor:pointer;font-size:16px;padding:0 4px;color:#666;';
+    delBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (!confirm('Delete "' + ((snap && snap.name) || ('Formation ' + (i + 1))) + '"? This removes its timeline markers and turns the region into a transition.')) return;
+      pushMarkerHistory();
+      if (f.startTime > 0) {
+        const si = markers.indexOf(f.startTime);
+        if (si >= 0) markers.splice(si, 1);
+      }
+      if (f.endTime !== null) {
+        const ei = markers.indexOf(f.endTime);
+        if (ei >= 0) markers.splice(ei, 1);
+      }
+      snapshots.splice(i, 1);
+      const newFlagged = new Set();
+      for (const fi of flaggedFormations) {
+        if (fi < i) newFlagged.add(fi);
+        else if (fi > i) newFlagged.add(fi - 1);
+      }
+      flaggedFormations = newFlagged;
+      renderSnapshots();
+      autoSave();
+    });
+
     titleRow.appendChild(title);
     titleRow.appendChild(flagBtn);
+    titleRow.appendChild(delBtn);
     el.appendChild(titleRow);
     el.appendChild(info);
 
