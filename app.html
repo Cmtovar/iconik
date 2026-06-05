@@ -9,7 +9,7 @@
 
   body {
     font-family: monospace;
-    background: #1a1a2e;
+    background: #1a1a1f;
     color: #eee;
     height: 100vh;
     display: flex;
@@ -446,7 +446,6 @@ const IconikStorage = {
 // ========================================================================
 //  Shared State
 // ========================================================================
-const GRID_SIZE = 30;
 const DOT_RADIUS = 10;
 const COLORS = [
   '#e94560','#3498db','#2ecc71','#f39c12','#9b59b6',
@@ -533,17 +532,17 @@ let dragPixelX = 0;
 let dragPixelY = 0;
 
 function initTriangle() {
-  const cx = 15, topY = 5, sp = 3;
+  // Center-origin coords: gx=0,gy=0 is center, +X right, +Y up
   const positions = [
-    { gx: cx, gy: topY },
-    { gx: cx - sp, gy: topY + sp },
-    { gx: cx + sp, gy: topY + sp },
-    { gx: cx - 2 * sp, gy: topY + 2 * sp },
-    { gx: cx, gy: topY + 2 * sp },
-    { gx: cx + 2 * sp, gy: topY + 2 * sp },
-    { gx: cx - 2 * sp, gy: topY + 3 * sp },
-    { gx: cx, gy: topY + 3 * sp },
-    { gx: cx + 2 * sp, gy: topY + 3 * sp },
+    { gx: 0, gy: 3 },       // top of triangle
+    { gx: -2, gy: 1 },
+    { gx: 2, gy: 1 },
+    { gx: -4, gy: -1 },
+    { gx: 0, gy: -1 },
+    { gx: 4, gy: -1 },
+    { gx: -4, gy: -3 },
+    { gx: 0, gy: -3 },
+    { gx: 4, gy: -3 },
   ];
   dots = positions.map((pos, i) => ({
     id: i + 1,
@@ -554,6 +553,21 @@ function initTriangle() {
   }));
 }
 
+// Grid layout: 18 columns (16 + 2 extra) x 10 rows, center-origin
+// gx=0,gy=0 is center. +X right, +Y up.
+// Pixel position: px = cx + gx * unit, py = cy - gy * unit
+let _gridUnit = 1;   // cached unit size
+let _gridCx = 0;     // cached pixel center X
+let _gridCy = 0;     // cached pixel center Y
+
+function gridToPixel(gx, gy) {
+  return { px: _gridCx + gx * _gridUnit, py: _gridCy - gy * _gridUnit };
+}
+
+function pixelToGrid(px, py) {
+  return { gx: (px - _gridCx) / _gridUnit, gy: -((py - _gridCy) / _gridUnit) };
+}
+
 function resizeGrid() {
   canvas.width = canvas.parentElement.clientWidth;
   canvas.height = canvas.parentElement.clientHeight;
@@ -561,28 +575,138 @@ function resizeGrid() {
 }
 
 function drawGrid() {
-  const w = canvas.width, h = canvas.height;
-  ctx.clearRect(0, 0, w, h);
+  const W = canvas.width, H = canvas.height;
+  ctx.clearRect(0, 0, W, H);
 
-  // grid lines
-  ctx.strokeStyle = '#222244';
+  // Background
+  ctx.fillStyle = '#1a1a1f';
+  ctx.fillRect(0, 0, W, H);
+
+  // Stage dimensions — fit inside canvas with margins
+  const marginX = Math.max(40, W * 0.08);
+  const marginY = Math.max(20, H * 0.04);
+  const stageW = W - marginX * 2;
+  const stageH = H - marginY * 2 - 30; // reserve 30px for axis labels
+
+  // 16 wide x 10 tall, square cells
+  const maxUnitW = stageW / 16;
+  const maxUnitH = stageH / 10;
+  const unit = Math.min(maxUnitW, maxUnitH);
+  const sw = unit * 16;
+  const sh = unit * 10;
+
+  const left = (W - sw) / 2;
+  const top = (H - sh - 20) / 2;
+  const cx = left + sw / 2;
+  const cy = top + sh / 2;
+
+  // Cache for coordinate conversions
+  _gridUnit = unit;
+  _gridCx = cx;
+  _gridCy = cy;
+
+  // Rounded clip path for stage fill
+  const r = 14;
+  const bLeft = left - unit, bTop = top, bW = sw + unit * 2, bH = sh;
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(bLeft + r, bTop);
+  ctx.lineTo(bLeft + bW - r, bTop);
+  ctx.quadraticCurveTo(bLeft + bW, bTop, bLeft + bW, bTop + r);
+  ctx.lineTo(bLeft + bW, bTop + bH - r);
+  ctx.quadraticCurveTo(bLeft + bW, bTop + bH, bLeft + bW - r, bTop + bH);
+  ctx.lineTo(bLeft + r, bTop + bH);
+  ctx.quadraticCurveTo(bLeft, bTop + bH, bLeft, bTop + bH - r);
+  ctx.lineTo(bLeft, bTop + r);
+  ctx.quadraticCurveTo(bLeft, bTop, bLeft + r, bTop);
+  ctx.closePath();
+  ctx.clip();
+
+  // Dark fill
+  ctx.fillStyle = '#2d2d44';
+  ctx.fillRect(bLeft, bTop, bW, bH);
+
+  // Outer columns (2 on each side) slightly lighter
+  ctx.fillStyle = '#3f3f55';
+  ctx.fillRect(bLeft, bTop, unit * 2, bH);
+  ctx.fillRect(left + sw - unit, bTop, unit * 2, bH);
+
+  // Grid lines (neutral gray)
+  ctx.strokeStyle = '#707078';
   ctx.lineWidth = 1;
-  for (let x = 0; x <= w; x += GRID_SIZE) {
-    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke();
-  }
-  for (let y = 0; y <= h; y += GRID_SIZE) {
-    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
+
+  // Vertical grid lines
+  for (let i = -9; i <= 9; i++) {
+    const x = cx + i * unit;
+    ctx.beginPath();
+    ctx.moveTo(x, top);
+    ctx.lineTo(x, top + sh);
+    ctx.stroke();
   }
 
-  // dots
+  // Horizontal grid lines
+  for (let i = -5; i <= 5; i++) {
+    const y = cy + i * unit;
+    ctx.beginPath();
+    ctx.moveTo(left - unit, y);
+    ctx.lineTo(left + sw + unit, y);
+    ctx.stroke();
+  }
+
+  ctx.restore(); // remove clip
+
+  // Red cross at center point
+  ctx.strokeStyle = '#e94560';
+  ctx.lineWidth = 1.5;
+  const crossLen = 10;
+  ctx.beginPath(); ctx.moveTo(cx - crossLen, cy); ctx.lineTo(cx + crossLen, cy); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(cx, cy - crossLen); ctx.lineTo(cx, cy + crossLen); ctx.stroke();
+
+  // Red border (rounded)
+  ctx.strokeStyle = '#e94560';
+  ctx.lineWidth = 2.5;
+  ctx.beginPath();
+  ctx.moveTo(bLeft + r, bTop);
+  ctx.lineTo(bLeft + bW - r, bTop);
+  ctx.quadraticCurveTo(bLeft + bW, bTop, bLeft + bW, bTop + r);
+  ctx.lineTo(bLeft + bW, bTop + bH - r);
+  ctx.quadraticCurveTo(bLeft + bW, bTop + bH, bLeft + bW - r, bTop + bH);
+  ctx.lineTo(bLeft + r, bTop + bH);
+  ctx.quadraticCurveTo(bLeft, bTop + bH, bLeft, bTop + bH - r);
+  ctx.lineTo(bLeft, bTop + r);
+  ctx.quadraticCurveTo(bLeft, bTop, bLeft + r, bTop);
+  ctx.closePath();
+  ctx.stroke();
+
+  // Red dash marks at midpoint of each edge
+  ctx.strokeStyle = '#e94560';
+  ctx.lineWidth = 2;
+  const dashLen = 10;
+  ctx.beginPath(); ctx.moveTo(cx, bTop - dashLen); ctx.lineTo(cx, bTop + dashLen); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(cx, bTop + bH - dashLen); ctx.lineTo(cx, bTop + bH + dashLen); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(bLeft - dashLen, cy); ctx.lineTo(bLeft + dashLen, cy); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(bLeft + bW - dashLen, cy); ctx.lineTo(bLeft + bW + dashLen, cy); ctx.stroke();
+
+  // Axis labels at bottom
+  ctx.fillStyle = '#777';
+  ctx.font = '26px monospace';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  const labelY = top + sh + 20;
+  for (let i = -8; i <= 8; i++) {
+    ctx.fillText(Math.abs(i).toString(), cx + i * unit, labelY);
+  }
+
+  // Dots (rendered on top of grid)
   for (const dot of dots) {
     let x, y;
     if (dot === draggingDot) {
       x = dragPixelX;
       y = dragPixelY;
     } else {
-      x = dot.gx * GRID_SIZE;
-      y = dot.gy * GRID_SIZE;
+      const p = gridToPixel(dot.gx, dot.gy);
+      x = p.px;
+      y = p.py;
     }
     ctx.beginPath();
     ctx.arc(x, y, DOT_RADIUS, 0, Math.PI * 2);
@@ -611,17 +735,20 @@ function drawGrid() {
 }
 
 function snapToGrid(px, py) {
-  return { gx: Math.round(px / GRID_SIZE), gy: Math.round(py / GRID_SIZE) };
+  const g = pixelToGrid(px, py);
+  // Snap to nearest 0.5 for half-grid snap
+  return { gx: Math.round(g.gx * 2) / 2, gy: Math.round(g.gy * 2) / 2 };
 }
 
 function findDotAt(gx, gy) {
-  return dots.find(d => d.gx === gx && d.gy === gy) || null;
+  return dots.find(d => Math.abs(d.gx - gx) < 0.01 && Math.abs(d.gy - gy) < 0.01) || null;
 }
 
 function findDotNearPixel(px, py) {
   for (const dot of dots) {
-    const dx = dot.gx * GRID_SIZE - px;
-    const dy = dot.gy * GRID_SIZE - py;
+    const p = gridToPixel(dot.gx, dot.gy);
+    const dx = p.px - px;
+    const dy = p.py - py;
     if (Math.sqrt(dx * dx + dy * dy) <= DOT_RADIUS + 4) return dot;
   }
   return null;
@@ -636,8 +763,9 @@ canvas.addEventListener('mousedown', (e) => {
   const dot = findDotNearPixel(px, py);
   if (dot) {
     draggingDot = dot;
-    dragPixelX = dot.gx * GRID_SIZE;
-    dragPixelY = dot.gy * GRID_SIZE;
+    const p = gridToPixel(dot.gx, dot.gy);
+    dragPixelX = p.px;
+    dragPixelY = p.py;
     canvas.style.cursor = 'grabbing';
     drawGrid();
   }
