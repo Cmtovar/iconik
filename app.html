@@ -341,12 +341,20 @@
       </div>
       <input id="video-opacity" type="range" min="0" max="1" step="0.05" value="0.4" title="DKDC overlay opacity" style="display:none; width:100%; accent-color:#e94560;">
     </div>
+    <div id="offset-controls" style="position:absolute; top:10px; left:10px; z-index:6; display:flex; flex-direction:column; align-items:flex-start; gap:3px; font-family:monospace; font-size:11px; color:#999;">
+      <span style="color:#777;">sync offset</span>
+      <div style="display:flex; align-items:center; gap:4px;">
+        <button id="offset-minus" style="background:none; border:1px solid #555; color:#eee; font-family:monospace; font-size:12px; padding:2px 8px; border-radius:3px; cursor:pointer;">&minus;</button>
+        <span id="offset-display" style="min-width:50px; text-align:center; color:#eee;">+0.00s</span>
+        <button id="offset-plus" style="background:none; border:1px solid #555; color:#eee; font-family:monospace; font-size:12px; padding:2px 8px; border-radius:3px; cursor:pointer;">+</button>
+      </div>
+    </div>
     <div id="video-placeholder" style="position:absolute; top:10px; left:50%; transform:translateX(-50%); width:60%; aspect-ratio:16/9; border:1px solid #0f3460; border-radius:8px; overflow:hidden; z-index:5;">
-        <video id="ref-video" class="compare-video" muted preload="auto" playsinline style="position:absolute; inset:0; display:block; width:100%; height:100%; object-fit:contain;">
-          <source src="reference-browser.mp4" data-source-key="reference-browser.mp4" type="video/mp4">
+        <video id="ref-video" class="compare-video" preload="auto" playsinline style="position:absolute; inset:0; display:block; width:100%; height:100%; object-fit:contain;">
+          <source src="reference-av.mp4" type="video/mp4">
         </video>
-        <video id="dkdc-video" class="compare-video" muted preload="auto" playsinline style="position:absolute; inset:0; display:none; width:100%; height:100%; object-fit:contain; opacity:0.4;">
-          <source src="dkdc-browser.mp4" data-source-key="dkdc-browser.mp4" type="video/mp4">
+        <video id="dkdc-video" class="compare-video" preload="auto" muted playsinline style="position:absolute; inset:0; display:none; width:100%; height:100%; object-fit:contain; opacity:0.4;">
+          <source src="dkdc-av.mp4" type="video/mp4">
         </video>
     </div>
     <canvas id="canvas"></canvas>
@@ -454,28 +462,11 @@ let currentTime = 0;    // shared timeline time in seconds
 let playing = false;
 let lastFrameTime = null;
 let videoMode = 'zb1';
-let activePlayPromise = null;
-let isExplicitSeek = false;
-let mediaSyncToken = 0;
-let mediaCachePromise = null;
 
 const VIDEO_SYNC = {
-  'reference-browser.mp4': { offset: 0 },
-  'dkdc-browser.mp4': { offset: 0 }
+  'reference-av.mp4': { offset: 0 },
+  'dkdc-av.mp4': { offset: 0 }
 };
-
-const MEDIA_ASSETS = {
-  audio: 'iconik.mp3',
-  'reference-browser.mp4': 'reference-browser.mp4',
-  'dkdc-browser.mp4': 'dkdc-browser.mp4'
-};
-
-const mediaObjectUrls = {};
-
-// Audio element
-const audio = new Audio('iconik.mp3');
-audio.preload = 'auto';
-let audioLoaded = true;
 
 // ========================================================================
 //  Helpers
@@ -1067,21 +1058,52 @@ function renderSnapshots() {
   snapshots.forEach((snap, i) => {
     const el = document.createElement('div');
     el.className = 'snapshot';
-    el.innerHTML =
-      '<div class="snap-title">' + snap.name + ' (' + snap.dots.length + ' dots)</div>' +
-      '<div class="snap-info">' + snap.timestamp + '</div>' +
-      '<button class="snap-delete" data-i="' + i + '">&times;</button>';
+
+    const title = document.createElement('div');
+    title.className = 'snap-title';
+    title.textContent = snap.name;
+    title.title = 'Double-click to rename';
+    title.addEventListener('dblclick', (e) => {
+      e.stopPropagation();
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.value = snap.name;
+      input.style.cssText = 'width:100%;background:#16213e;border:1px solid #e94560;color:#eee;font-family:monospace;font-size:12px;padding:2px 4px;border-radius:3px;';
+      const finish = () => {
+        const val = input.value.trim();
+        if (val) snap.name = val;
+        renderSnapshots();
+        autoSave();
+      };
+      input.addEventListener('blur', finish);
+      input.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') input.blur(); });
+      title.replaceWith(input);
+      input.focus();
+      input.select();
+    });
+
+    const info = document.createElement('div');
+    info.className = 'snap-info';
+    info.textContent = snap.timestamp;
+
+    const deleteBtn = document.createElement('button');
+    deleteBtn.className = 'snap-delete';
+    deleteBtn.innerHTML = '&times;';
+    deleteBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      snapshots.splice(i, 1);
+      renderSnapshots();
+      autoSave();
+    });
+
+    el.appendChild(title);
+    el.appendChild(info);
+    el.appendChild(deleteBtn);
     el.addEventListener('click', (e) => {
       if (e.target.classList.contains('snap-delete')) return;
       dots = snap.dots.map(d => ({ ...d }));
       drawGrid();
       renderDotsList();
-      autoSave();
-    });
-    const deleteBtn = el.querySelector('.snap-delete');
-    deleteBtn.addEventListener('click', () => {
-      snapshots.splice(i, 1);
-      renderSnapshots();
       autoSave();
     });
     list.appendChild(el);
@@ -1109,7 +1131,7 @@ document.getElementById('btn-import').addEventListener('click', async () => {
 });
 
 // ========================================================================
-//  Audio Player
+//  Top Bar (scrub + play)
 // ========================================================================
 (function() {
   const playBtn   = document.getElementById('play-btn');
@@ -1120,243 +1142,43 @@ document.getElementById('btn-import').addEventListener('click', async () => {
   let scrubDragging = false;
   let scrubResumeAfterSeek = false;
 
-  function updateAudioUI() {
-    scrubFill.style.width = (audio.duration ? (audio.currentTime / audio.duration) * 100 : 0) + '%';
-    timeDisp.textContent = fmt(audio.currentTime) + ' / ' + fmt(audio.duration);
+  function updateTopBar() {
+    const dur = getPlaybackDuration();
+    scrubFill.style.width = (dur ? (currentTime / dur) * 100 : 0) + '%';
+    timeDisp.textContent = fmt(currentTime) + ' / ' + fmt(dur);
   }
 
-  // Play / Pause (synced with timeline)
-  playBtn.addEventListener('click', () => {
-    setPlaying(!playing);
-  });
+  playBtn.addEventListener('click', () => setPlaying(!playing));
 
-  audio.addEventListener('ended', () => {
-    const activeVideos = getActiveVideos();
-    const videoDone = activeVideos.length === 0 || activeVideos.every(vid => vid.ended || vid.currentTime >= vid.duration);
-    if (videoDone) {
-      setPlaying(false);
-    }
-    // If video is still going, let it keep playing; audio just stays at its end
-    playBtn.innerHTML = playing ? '&#9646;&#9646;' : '&#9654;';
-  });
-
-  // Scrub bar
-  function seekAudio(e) {
+  function scrubTime(e) {
     const rect = scrubWrap.getBoundingClientRect();
-    const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-    const t = ratio * getPlaybackDuration();
-    seekPlayback(t);
-    updateAudioUI();
+    return Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width)) * getPlaybackDuration();
   }
 
   scrubWrap.addEventListener('mousedown', (e) => {
     scrubDragging = true;
     scrubResumeAfterSeek = playing;
     if (playing) setPlaying(false);
-    seekAudio(e);
+    seekUI(scrubTime(e));
   });
-  document.addEventListener('mousemove', (e) => { if (scrubDragging) seekAudio(e); });
+  document.addEventListener('mousemove', (e) => { if (scrubDragging) seekUI(scrubTime(e)); });
   document.addEventListener('mouseup', () => {
     if (!scrubDragging) return;
     scrubDragging = false;
+    seekTo(currentTime);
     if (scrubResumeAfterSeek) setPlaying(true);
     scrubResumeAfterSeek = false;
   });
 
-  audio.addEventListener('timeupdate', () => {
-    if (isExplicitSeek) return;
-    if (playing && getPrimaryVideo()) return;
-    currentTime = audio.currentTime;
-    updateAudioUI();
-  });
-  audio.addEventListener('loadedmetadata', updateAudioUI);
-  audio.addEventListener('waiting', () => { if (playing && !isExplicitSeek) setPlaying(false); });
-  audio.addEventListener('stalled', () => { if (playing && !isExplicitSeek) setPlaying(false); });
-
-  // Expose for external sync
-  window._audioUpdateUI = updateAudioUI;
+  window._audioUpdateUI = updateTopBar;
 })();
 
 // ========================================================================
-//  Sync: shared play/pause
+//  Playback System
+//  - Primary video is the ONLY media element (audio muxed in)
+//  - Secondary video (overlay/dkdc) is muted, follows primary
+//  - One element = zero sync issues
 // ========================================================================
-async function setPlaying(state) {
-  if (playing === state) {
-    return;
-  }
-  playing = state;
-  updatePlaybackButtons();
-  if (playing) {
-    lastFrameTime = performance.now();
-    await cacheMediaAssets();
-    await seekPlayback(currentTime, { resume: true });
-  } else {
-    mediaSyncToken++;
-    activePlayPromise = null;
-    pauseAllMedia();
-  }
-}
-
-function getPlaybackDuration() {
-  if (audioLoaded && isFinite(audio.duration)) return audio.duration;
-  const vid = document.getElementById('ref-video');
-  if (vid && isFinite(vid.duration)) return vid.duration;
-  return Math.max(60, currentTime);
-}
-
-function clampPlaybackTime(t) {
-  const duration = getPlaybackDuration();
-  const max = isFinite(duration) ? duration : Math.max(60, t);
-  return Math.max(0, Math.min(t, max));
-}
-
-function getClockTime() {
-  const primaryVideo = getPrimaryVideo();
-  if (primaryVideo && isFinite(primaryVideo.duration)) {
-    return Math.max(0, primaryVideo.currentTime - getVideoOffset(primaryVideo));
-  }
-  if (audioLoaded && isFinite(audio.duration)) return audio.currentTime;
-  return currentTime;
-}
-
-function updatePlaybackButtons() {
-  const playBtn = document.getElementById('play-btn');
-  const tlPlayBtn = document.getElementById('tl-play-btn');
-  if (playBtn) playBtn.innerHTML = playing ? '&#9646;&#9646;' : '&#9654;';
-  if (tlPlayBtn) tlPlayBtn.innerHTML = playing ? '&#9646;&#9646; Pause' : '&#9654; Play';
-}
-
-function pauseAllMedia() {
-  if (audioLoaded) {
-    audio.playbackRate = 1;
-    if (!audio.paused) audio.pause();
-  }
-  getAllVideos().forEach(vid => {
-    vid.playbackRate = 1;
-    if (!vid.paused) vid.pause();
-  });
-}
-
-function waitForEvent(target, eventName, timeoutMs) {
-  return new Promise(resolve => {
-    let done = false;
-    const finish = () => {
-      if (done) return;
-      done = true;
-      clearTimeout(timer);
-      target.removeEventListener(eventName, finish);
-      resolve();
-    };
-    const timer = setTimeout(finish, timeoutMs);
-    target.addEventListener(eventName, finish, { once: true });
-  });
-}
-
-async function waitForMediaReady(media, targetTime) {
-  if (!media || !isFinite(media.duration)) return;
-  if (Math.abs(media.currentTime - targetTime) > 0.015) {
-    await waitForEvent(media, 'seeked', 800);
-  }
-  if (media.readyState < 3) {
-    await waitForEvent(media, 'canplay', 1200);
-  }
-}
-
-function cacheMediaAssets() {
-  if (mediaCachePromise) return mediaCachePromise;
-
-  mediaCachePromise = (async () => {
-    await Promise.all(Object.entries(MEDIA_ASSETS).map(async ([key, url]) => {
-      try {
-        const res = await fetch(url, { cache: 'force-cache' });
-        if (!res.ok) throw new Error('HTTP ' + res.status);
-        const blob = await res.blob();
-        mediaObjectUrls[key] = URL.createObjectURL(blob);
-      } catch (e) {
-        console.warn('Media cache failed for', url, e);
-      }
-    }));
-
-    if (mediaObjectUrls.audio) {
-      const t = isFinite(audio.duration) ? Math.min(currentTime, audio.duration) : currentTime;
-      audio.addEventListener('loadedmetadata', () => { audio.currentTime = Math.min(t, audio.duration); }, { once: true });
-      audio.src = mediaObjectUrls.audio;
-      audio.load();
-    }
-
-    getAllVideos().forEach(vid => {
-      const key = getVideoSourceName(vid);
-      if (!mediaObjectUrls[key]) return;
-      const source = vid.querySelector('source');
-      if (!source) return;
-      vid.dataset.sourceKey = key;
-      source.dataset.sourceKey = key;
-      source.src = mediaObjectUrls[key];
-      vid.addEventListener('loadedmetadata', () => {
-        if (isFinite(vid.duration)) vid.currentTime = getVideoTargetTime(vid);
-      }, { once: true });
-      vid.load();
-    });
-  })();
-
-  return mediaCachePromise;
-}
-
-async function playActiveMediaTogether(token) {
-  const activeVideos = getActiveVideos();
-  try {
-    await Promise.all(activeVideos.map(async vid => {
-      if (token !== mediaSyncToken) return;
-      if (vid.readyState < 3) await waitForEvent(vid, 'canplay', 1200);
-      if (token !== mediaSyncToken || vid.currentTime >= vid.duration) return;
-      const p = vid.play();
-      if (p && typeof p.then === 'function') await p;
-    }));
-
-    if (token !== mediaSyncToken) return;
-    if (audioLoaded && audio.paused) {
-      activePlayPromise = audio.play();
-      if (activePlayPromise && typeof activePlayPromise.then === 'function') await activePlayPromise;
-    }
-  } catch (e) {
-    if (token === mediaSyncToken) setPlaying(false);
-  }
-}
-
-// Explicit user seeks are lockstep transactions: pause, seek every media element,
-// wait for active video readiness, then resume only when everything is aligned.
-async function seekPlayback(t, opts = {}) {
-  const token = ++mediaSyncToken;
-  const shouldResume = opts.resume !== undefined ? opts.resume : playing;
-  currentTime = clampPlaybackTime(t);
-  isExplicitSeek = true;
-  pauseAllMedia();
-
-  if (audioLoaded && isFinite(audio.duration)) {
-    const audioTarget = Math.min(currentTime, audio.duration);
-    audio.currentTime = audioTarget;
-    audio.playbackRate = 1;
-  }
-
-  const waits = [];
-  getAllVideos().forEach(vid => {
-    if (!isFinite(vid.duration)) return;
-    const videoTarget = getVideoTargetTime(vid);
-    vid.currentTime = videoTarget;
-    vid.playbackRate = 1;
-    if (getActiveVideos().includes(vid)) waits.push(waitForMediaReady(vid, videoTarget));
-  });
-
-  await Promise.all(waits);
-  if (token !== mediaSyncToken) return;
-  isExplicitSeek = false;
-
-  if (shouldResume) {
-    await playActiveMediaTogether(token);
-  } else {
-    updatePlaybackButtons();
-  }
-}
 
 function getAllVideos() {
   return Array.from(document.querySelectorAll('.compare-video'));
@@ -1376,8 +1198,6 @@ function getPrimaryVideo() {
 
 function getVideoSourceName(vid) {
   const source = vid && vid.querySelector('source');
-  if (vid && vid.dataset.sourceKey) return vid.dataset.sourceKey;
-  if (source && source.dataset.sourceKey) return source.dataset.sourceKey;
   if (!source) return '';
   return (source.getAttribute('src') || '').split('/').pop();
 }
@@ -1392,43 +1212,95 @@ function getVideoTargetTime(vid) {
   return Math.max(0, Math.min(currentTime + getVideoOffset(vid), vid.duration));
 }
 
+function getPlaybackDuration() {
+  const vid = getPrimaryVideo();
+  if (vid && isFinite(vid.duration)) return vid.duration;
+  return Math.max(60, currentTime);
+}
+
+function clampPlaybackTime(t) {
+  const dur = getPlaybackDuration();
+  return Math.max(0, Math.min(t, isFinite(dur) ? dur : Math.max(60, t)));
+}
+
+function updatePlaybackButtons() {
+  const playBtn = document.getElementById('play-btn');
+  const tlPlayBtn = document.getElementById('tl-play-btn');
+  if (playBtn) playBtn.innerHTML = playing ? '&#9646;&#9646;' : '&#9654;';
+  if (tlPlayBtn) tlPlayBtn.innerHTML = playing ? '&#9646;&#9646; Pause' : '&#9654; Play';
+}
+
+// Seek the video to time t.
+function seekTo(t) {
+  currentTime = clampPlaybackTime(t);
+  getAllVideos().forEach(vid => {
+    if (isFinite(vid.duration)) vid.currentTime = getVideoTargetTime(vid);
+  });
+}
+
+// UI-only seek: update currentTime for bars/dots, don't touch video.
+function seekUI(t) {
+  currentTime = clampPlaybackTime(t);
+}
+
+function setPlaying(state) {
+  if (playing === state) return;
+  playing = state;
+  updatePlaybackButtons();
+
+  if (playing) {
+    seekTo(currentTime);
+    getActiveVideos().forEach(vid => {
+      if (isFinite(vid.duration)) vid.play().catch(() => {});
+    });
+  } else {
+    getAllVideos().forEach(vid => { if (!vid.paused) vid.pause(); });
+  }
+}
+
+// Called every frame: read time from primary video
+function syncMedia() {
+  if (playing) {
+    const vid = getPrimaryVideo();
+    if (vid && isFinite(vid.duration)) {
+      currentTime = Math.max(0, vid.currentTime - getVideoOffset(vid));
+    } else {
+      const now = performance.now();
+      if (lastFrameTime !== null) currentTime += (now - lastFrameTime) / 1000;
+      lastFrameTime = now;
+    }
+
+    // Keep secondary video loosely synced (overlay mode)
+    // Wide tolerance (2s) so it plays smoothly instead of constantly re-seeking
+    const active = getActiveVideos();
+    if (active.length > 1) {
+      for (let i = 1; i < active.length; i++) {
+        const sec = active[i];
+        if (!isFinite(sec.duration)) continue;
+        const target = getVideoTargetTime(sec);
+        if (Math.abs(sec.currentTime - target) > 2) sec.currentTime = target;
+        if (sec.paused && sec.currentTime < sec.duration) sec.play().catch(() => {});
+      }
+    }
+
+    // If primary video ended, stop
+    if (vid && vid.ended) setPlaying(false);
+  }
+}
+
 function syncVideoToClock(force, vid) {
   if (!vid || !isFinite(vid.duration)) return;
-
   const target = getVideoTargetTime(vid);
-  const drift = target - vid.currentTime;
-  if (force || Math.abs(drift) > 1) {
+  if (force || Math.abs(target - vid.currentTime) > 0.3) {
     vid.currentTime = target;
-    vid.playbackRate = 1;
-    return;
   }
-
-  if (Math.abs(drift) < 0.08) {
-    vid.playbackRate = 1;
-    return;
-  }
-
-  vid.playbackRate = Math.max(0.85, Math.min(1.15, 1 + drift * 0.25));
 }
 
-function syncVideosToClock(force) {
-  getActiveVideos().forEach(vid => syncVideoToClock(force, vid));
-}
-
-function syncAudioToClock(force) {
-  if (!audioLoaded || !isFinite(audio.duration)) return;
-  const target = Math.min(currentTime, audio.duration);
-  const drift = target - audio.currentTime;
-  if (force || Math.abs(drift) > 0.06) {
-    audio.currentTime = target;
-    audio.playbackRate = 1;
-    return;
-  }
-  if (Math.abs(drift) < 0.025) {
-    audio.playbackRate = 1;
-    return;
-  }
-  audio.playbackRate = Math.max(0.9, Math.min(1.1, 1 + drift * 0.35));
+function updateOffsetDisplay() {
+  const vid = getPrimaryVideo();
+  const offset = vid ? getVideoOffset(vid) : 0;
+  const el = document.getElementById('offset-display');
+  if (el) el.textContent = (offset >= 0 ? '+' : '') + offset.toFixed(2) + 's';
 }
 
 // ========================================================================
@@ -1716,7 +1588,7 @@ function syncAudioToClock(force) {
 
   scrollbar.addEventListener('input', () => {
     scrollbarSeeking = true;
-    seekPlayback(parseFloat(scrollbar.value), { resume: false });
+    seekUI(parseFloat(scrollbar.value));
   });
   scrollbar.addEventListener('mousedown', () => {
     scrollbarSeeking = true;
@@ -1731,6 +1603,7 @@ function syncAudioToClock(force) {
   function endScrollbarSeek() {
     if (!scrollbarSeeking) return;
     scrollbarSeeking = false;
+    seekTo(currentTime);
     if (scrollbarResumeAfterSeek) setPlaying(true);
     scrollbarResumeAfterSeek = false;
   }
@@ -1742,7 +1615,7 @@ function syncAudioToClock(force) {
     e.preventDefault();
     const delta = e.deltaX !== 0 ? e.deltaX : e.deltaY;
     const panAmount = delta * 0.05;
-    seekPlayback(currentTime + panAmount, { resume: playing });
+    seekTo(currentTime + panAmount);
   }, { passive: false });
 
   // ---- Drag timeline to seek ----
@@ -1778,8 +1651,7 @@ function syncAudioToClock(force) {
     const w = rect.width;
     const t = xToTime(clickX, centerTime, w);
     if (t >= 0) {
-      seekPlayback(t, { resume: false });
-      // Update the min/sec inputs to show current time for easy "Add Marker"
+      seekUI(t);
       const m = Math.floor(currentTime / 60);
       const s = Math.floor(currentTime % 60);
       markerMin.value = String(m);
@@ -1851,34 +1723,18 @@ function syncAudioToClock(force) {
       tlCanvas.style.cursor = '';
       autoSave();
     }
+    if (draggingTimeline) {
+      seekTo(currentTime);
+      if (timelineResumeAfterSeek) setPlaying(true);
+    }
     draggingTimeline = false;
     timelineSeekCenter = 0;
-    if (timelineResumeAfterSeek) setPlaying(true);
     timelineResumeAfterSeek = false;
   });
 
   // ===== Main animation tick =====
   function tick(now) {
-    // Advance time
-    if (playing) {
-      if (audioLoaded) {
-        currentTime = getClockTime();
-      } else {
-        if (lastFrameTime !== null) {
-          const dt = (now - lastFrameTime) / 1000;
-          currentTime += dt;
-        }
-        lastFrameTime = now;
-      }
-      syncVideosToClock(false);
-      syncAudioToClock(false);
-    } else {
-      lastFrameTime = null;
-      if (audioLoaded) {
-        currentTime = getClockTime();
-      }
-      syncAudioToClock(true);
-    }
+    syncMedia();
 
     // Formation-driven dot animation
     try { animateDots(); } catch (e) { /* prevent animation errors from killing the loop */ }
@@ -2016,27 +1872,19 @@ resizeGrid();
 renderDotsList();
 renderSnapshots();
 startCloudSync();
-cacheMediaAssets();
 </script>
 
-<!-- Video ended handler (synced with audio + timeline) -->
+<!-- Video event handlers -->
 <script>
 (function() {
   getAllVideos().forEach(vid => {
     vid.addEventListener('loadedmetadata', () => {
       syncVideoToClock(true, vid);
     });
-
-    // When video ends on its own, pause everything if audio is also done
     vid.addEventListener('ended', () => {
-      const audioDone = !audioLoaded || audio.ended || audio.currentTime >= audio.duration;
-      if (audioDone) {
-        setPlaying(false);
-      }
+      const allDone = getActiveVideos().every(v => v.ended || v.currentTime >= v.duration);
+      if (allDone) setPlaying(false);
     });
-
-    vid.addEventListener('waiting', () => { if (playing && !isExplicitSeek) setPlaying(false); });
-    vid.addEventListener('stalled', () => { if (playing && !isExplicitSeek) setPlaying(false); });
   });
 })();
 </script>
@@ -2058,6 +1906,21 @@ cacheMediaAssets();
     });
   }
 
+  function updateMuting() {
+    if (videoMode === 'zb1') {
+      zb1.muted = false;
+      dkdc.muted = true;
+    } else if (videoMode === 'dkdc') {
+      zb1.muted = true;
+      dkdc.muted = false;
+    } else {
+      // Overlay: audio from whichever video is more visible
+      const dkdcOpacity = parseFloat(opacity.value);
+      zb1.muted = dkdcOpacity > 0.3;
+      dkdc.muted = dkdcOpacity <= 0.3;
+    }
+  }
+
   function applyVideoMode(mode) {
     videoMode = mode;
     setButtonActive(mode);
@@ -2068,14 +1931,21 @@ cacheMediaAssets();
     zb1.style.opacity = '1';
     dkdc.style.opacity = mode === 'overlay' ? opacity.value : '1';
 
+    updateMuting();
+
     getAllVideos().forEach(vid => {
       vid.playbackRate = 1;
       syncVideoToClock(true, vid);
       if (!getActiveVideos().includes(vid) && !vid.paused) vid.pause();
     });
 
+    updateOffsetDisplay();
+
+    seekTo(currentTime);
     if (playing) {
-      seekPlayback(currentTime, { resume: true });
+      getActiveVideos().forEach(vid => {
+        if (isFinite(vid.duration) && vid.paused) vid.play().catch(() => {});
+      });
     }
   }
 
@@ -2086,10 +1956,28 @@ cacheMediaAssets();
   });
 
   opacity.addEventListener('input', () => {
-    if (videoMode === 'overlay') dkdc.style.opacity = opacity.value;
+    if (videoMode === 'overlay') {
+      dkdc.style.opacity = opacity.value;
+      updateMuting();
+    }
   });
 
   applyVideoMode(videoMode);
+
+  // Offset fine-tune controls
+  function adjustOffset(delta) {
+    const vid = getPrimaryVideo();
+    if (!vid) return;
+    const key = getVideoSourceName(vid);
+    if (!key || !VIDEO_SYNC[key]) return;
+    VIDEO_SYNC[key].offset = Math.round((VIDEO_SYNC[key].offset + delta) * 100) / 100;
+    updateOffsetDisplay();
+    seekTo(currentTime);
+  }
+
+  document.getElementById('offset-minus').addEventListener('click', () => adjustOffset(-0.01));
+  document.getElementById('offset-plus').addEventListener('click', () => adjustOffset(0.01));
+  updateOffsetDisplay();
 })();
 </script>
 </body>
