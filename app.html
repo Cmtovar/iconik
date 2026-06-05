@@ -373,6 +373,7 @@
       <input type="text" id="markerSec" placeholder="ss" maxlength="2" style="width:36px;text-align:center;background:transparent;border:none;color:#eee;font-family:monospace;font-size:12px;outline:none;" />
     </span>
     <button id="addMarkerBtn">Add Marker</button>
+    <button id="undoMarkerBtn" title="Undo last timeline change" style="opacity:0.4;cursor:default;">Undo</button>
     <span id="formation-info">No formations yet.</span>
   </div>
   <canvas id="timelineCanvas"></canvas>
@@ -456,7 +457,24 @@ const VISIBLE_WINDOW = 15; // +/- 15 seconds from center = 30 seconds total visi
 let dots = [];          // { id, gx, gy, color, name, idol, member }
 let snapshots = [];     // { name, timestamp, dots: [...] }
 let markers = [];       // sorted array of seconds (formation boundaries)
+let markerHistory = []; // undo stack for markers
+const MARKER_HISTORY_LIMIT = 50;
+function pushMarkerHistory() {
+  markerHistory.push(markers.slice());
+  if (markerHistory.length > MARKER_HISTORY_LIMIT) markerHistory.shift();
+  const btn = document.getElementById('undoMarkerBtn');
+  if (btn) { btn.style.opacity = '1'; btn.style.cursor = 'pointer'; }
+}
+function undoMarkers() {
+  if (markerHistory.length === 0) return;
+  markers = markerHistory.pop();
+  renderSnapshots();
+  autoSave();
+  const btn = document.getElementById('undoMarkerBtn');
+  if (btn && markerHistory.length === 0) { btn.style.opacity = '0.4'; btn.style.cursor = 'default'; }
+}
 let formationCounter = 0;
+let flaggedFormations = new Set(); // indices of flagged formations
 
 let currentTime = 0;    // shared timeline time in seconds
 let playing = false;
@@ -564,7 +582,8 @@ function getAppState() {
       dots: normalizeDots(snap.dots)
     })),
     markers: markers.slice().sort((a, b) => a - b),
-    formationCounter
+    formationCounter,
+    flaggedFormations: [...flaggedFormations]
   };
 }
 
@@ -581,6 +600,7 @@ function applyAppState(data) {
     markers = data.markers.slice().sort((a, b) => a - b);
   }
   if (Number.isFinite(data.formationCounter)) formationCounter = data.formationCounter;
+  if (Array.isArray(data.flaggedFormations)) flaggedFormations = new Set(data.flaggedFormations);
 }
 
 function hasMeaningfulState(state) {
@@ -1081,11 +1101,27 @@ function renderSnapshots() {
     el.className = 'snapshot';
     if (isCurrent) el.style.borderColor = '#e94560';
 
+    const titleRow = document.createElement('div');
+    titleRow.style.cssText = 'display:flex;align-items:center;justify-content:space-between;';
+
     const title = document.createElement('div');
     title.className = 'snap-title';
+    title.style.flex = '1';
     title.textContent = (snap && snap.name) || ('Formation ' + (i + 1));
     if (!hasDots) title.textContent += ' (empty)';
     title.title = 'Double-click to rename';
+
+    const flagBtn = document.createElement('button');
+    flagBtn.textContent = flaggedFormations.has(i) ? '\u2691' : '\u2690';
+    flagBtn.title = 'Flag this formation';
+    flagBtn.style.cssText = 'background:none;border:none;cursor:pointer;font-size:16px;padding:0 4px;color:' + (flaggedFormations.has(i) ? '#e94560' : '#666') + ';';
+    flagBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (flaggedFormations.has(i)) flaggedFormations.delete(i);
+      else flaggedFormations.add(i);
+      renderSnapshots();
+      autoSave();
+    });
     title.addEventListener('dblclick', (e) => {
       e.stopPropagation();
       const input = document.createElement('input');
@@ -1109,7 +1145,9 @@ function renderSnapshots() {
     info.className = 'snap-info';
     info.textContent = fmt(f.startTime) + (f.endTime !== null ? ' – ' + fmt(f.endTime) : '+');
 
-    el.appendChild(title);
+    titleRow.appendChild(title);
+    titleRow.appendChild(flagBtn);
+    el.appendChild(titleRow);
     el.appendChild(info);
 
     // Click to seek to this formation and load its dots
@@ -1117,9 +1155,11 @@ function renderSnapshots() {
       seekTo(f.startTime + 0.1);
       if (hasDots) {
         dots = snap.dots.map(d => ({ ...d }));
-        drawGrid();
-        renderDotsList();
+      } else {
+        initTriangle();
       }
+      drawGrid();
+      renderDotsList();
       renderSnapshots();
     });
 
@@ -1392,6 +1432,7 @@ function updateOffsetDisplay() {
       if (t <= 0) return;
     }
     if (markers.includes(t)) return;
+    pushMarkerHistory();
     markers.push(t);
     markers.sort((a, b) => a - b);
     markerMin.value = '';
@@ -1411,6 +1452,7 @@ function updateOffsetDisplay() {
   });
 
   addMarkerBtn.addEventListener('click', addMarker);
+  document.getElementById('undoMarkerBtn').addEventListener('click', undoMarkers);
   markerSec.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') addMarker();
   });
@@ -1423,6 +1465,7 @@ function updateOffsetDisplay() {
     e.preventDefault();
     const idx = findNearbyMarker(e.clientX);
     if (idx >= 0) {
+      pushMarkerHistory();
       markers.splice(idx, 1);
       renderSnapshots();
       autoSave();
@@ -1438,6 +1481,7 @@ function updateOffsetDisplay() {
     const t2 = Math.round((t + 0.5) * 10) / 10;
     if (t <= 0) return;
     let added = false;
+    if (!markers.includes(t) || !markers.includes(t2)) pushMarkerHistory();
     if (!markers.includes(t)) { markers.push(t); added = true; }
     if (!markers.includes(t2)) { markers.push(t2); added = true; }
     if (added) {
@@ -1732,6 +1776,7 @@ function updateOffsetDisplay() {
     // Check if near a marker boundary first -- marker drag takes priority
     const idx = findNearbyMarker(e.clientX);
     if (idx >= 0) {
+      pushMarkerHistory();
       draggingMarkerIndex = idx;
       markerDragCenter = currentTime;
       tlCanvas.style.cursor = 'col-resize';
