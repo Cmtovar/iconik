@@ -17,7 +17,7 @@
     overflow: hidden;
   }
 
-  /* ===== Audio Player Bar (top) ===== */
+  /* ===== Unified Player Bar (top) ===== */
   #audio-player {
     background: #16213e;
     padding: 8px 16px;
@@ -294,32 +294,11 @@
     border-radius: 4px;
   }
 
-  /* Video player seek bar thumb */
-  #vp-seek::-webkit-slider-thumb {
-    -webkit-appearance: none;
-    appearance: none;
-    width: 14px;
-    height: 14px;
-    border-radius: 50%;
-    background: #e94560;
-    cursor: pointer;
-  }
-  #vp-seek::-moz-range-thumb {
-    width: 14px;
-    height: 14px;
-    border-radius: 50%;
-    background: #e94560;
-    border: none;
-    cursor: pointer;
-  }
-  #vp-play-btn:hover {
-    background: #e94560;
-  }
 </style>
 </head>
 <body>
 
-<!-- ===== Audio Player ===== -->
+<!-- ===== Unified Player Bar (controls audio + video) ===== -->
 <div id="audio-player">
   <button id="play-btn">&#9654;</button>
   <div id="scrub-wrap"><div id="scrub-fill"></div></div>
@@ -348,17 +327,10 @@
   </div>
 
   <div id="grid-container">
-    <div id="video-placeholder" style="position:absolute; top:10px; left:50%; transform:translateX(-50%); width:60%; height:35%; background:#16213e; border:1px solid #0f3460; border-radius:8px; display:flex; flex-direction:column; overflow:hidden; z-index:5;">
-      <div style="flex:1; min-height:0; background:#000; display:flex; align-items:center; justify-content:center;">
+    <div id="video-placeholder" style="position:absolute; top:10px; left:50%; transform:translateX(-50%); width:60%; aspect-ratio:16/9; border:1px solid #0f3460; border-radius:8px; overflow:hidden; z-index:5;">
         <video id="ref-video" preload="auto" style="display:block; width:100%; height:100%; object-fit:contain;">
           <source src="reference.mp4" type="video/mp4">
         </video>
-      </div>
-      <div id="vp-controls" style="display:flex; align-items:center; gap:8px; padding:6px 10px; background:#16213e; flex-shrink:0;">
-        <button id="vp-play-btn" style="background:#0f3460; border:1px solid #e94560; color:#eee; font-family:monospace; font-size:13px; padding:4px 10px; border-radius:4px; cursor:pointer; flex-shrink:0;">Play</button>
-        <input type="range" id="vp-seek" min="0" max="100" step="0.1" value="0" style="flex:1; -webkit-appearance:none; appearance:none; height:6px; background:#0f3460; border-radius:3px; outline:none; cursor:pointer;">
-        <span id="vp-time" style="font-size:12px; white-space:nowrap; flex-shrink:0; color:#eee; font-family:monospace;">00:00 / 00:00</span>
-      </div>
     </div>
     <canvas id="canvas"></canvas>
   </div>
@@ -968,20 +940,17 @@ function setPlaying(state) {
   const playBtn = document.getElementById('play-btn');
   const tlPlayBtn = document.getElementById('tl-play-btn');
   const vid = document.getElementById('ref-video');
-  const vpPlayBtn = document.getElementById('vp-play-btn');
   if (playing) {
     lastFrameTime = performance.now();
     playBtn.innerHTML = '&#9646;&#9646;';
     tlPlayBtn.innerHTML = '&#9646;&#9646; Pause';
     if (audioLoaded && audio.paused) audio.play();
     if (vid && vid.readyState >= 2 && vid.paused && vid.currentTime < vid.duration) vid.play();
-    if (vpPlayBtn) vpPlayBtn.textContent = 'Pause';
   } else {
     playBtn.innerHTML = '&#9654;';
     tlPlayBtn.innerHTML = '&#9654; Play';
     if (audioLoaded && !audio.paused) audio.pause();
     if (vid && !vid.paused) vid.pause();
-    if (vpPlayBtn) vpPlayBtn.textContent = 'Play';
   }
 }
 
@@ -1533,55 +1502,17 @@ renderDotsList();
 renderSnapshots();
 </script>
 
-<!-- Video Player Controls (synced with audio + timeline) -->
+<!-- Video ended handler (synced with audio + timeline) -->
 <script>
 (function() {
   const vid = document.getElementById('ref-video');
-  const vpPlayBtn = document.getElementById('vp-play-btn');
-  const seekBar = document.getElementById('vp-seek');
-  const timeDisp = document.getElementById('vp-time');
 
-  function vfmt(sec) {
-    const m = Math.floor(sec / 60);
-    const s = Math.floor(sec % 60);
-    return String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
-  }
-
-  // Play/Pause drives the unified state
-  vpPlayBtn.addEventListener('click', () => {
-    setPlaying(!playing);
-  });
-
-  // When video ends on its own, pause everything
+  // When video ends on its own, pause everything if audio is also done
   vid.addEventListener('ended', () => {
-    // Only stop all if audio has also ended (or isn't loaded)
     const audioDone = !audioLoaded || audio.ended || audio.currentTime >= audio.duration;
     if (audioDone) {
       setPlaying(false);
     }
-    // Otherwise let audio keep driving; video just stays at its end
-    vpPlayBtn.textContent = playing ? 'Pause' : 'Play';
-  });
-
-  vid.addEventListener('loadedmetadata', () => {
-    seekBar.max = vid.duration;
-    timeDisp.textContent = vfmt(0) + ' / ' + vfmt(vid.duration);
-  });
-
-  // Seek bar drives unified time
-  let seeking = false;
-  seekBar.addEventListener('mousedown', () => { seeking = true; });
-  seekBar.addEventListener('mouseup', () => { seeking = false; });
-  seekBar.addEventListener('touchstart', () => { seeking = true; });
-  seekBar.addEventListener('touchend', () => { seeking = false; });
-  seekBar.addEventListener('input', () => {
-    syncTimeToAll(parseFloat(seekBar.value));
-    timeDisp.textContent = vfmt(vid.currentTime) + ' / ' + vfmt(vid.duration || 0);
-  });
-
-  vid.addEventListener('timeupdate', () => {
-    if (!seeking) seekBar.value = vid.currentTime;
-    timeDisp.textContent = vfmt(vid.currentTime) + ' / ' + vfmt(vid.duration || 0);
   });
 })();
 </script>
