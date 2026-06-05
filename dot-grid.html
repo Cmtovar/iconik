@@ -167,8 +167,8 @@ function gridToPixel(gx, gy) {
 function pixelToGrid(px, py) {
   const s = getStageRect();
   return {
-    gx: Math.round((px - s.centerX) / s.unit),
-    gy: Math.round((s.centerY - py) / s.unit)
+    gx: Math.round((px - s.centerX) / s.unit * 2) / 2,
+    gy: Math.round((s.centerY - py) / s.unit * 2) / 2
   };
 }
 
@@ -202,9 +202,18 @@ function draw() {
   ctx.rect(left, top, stageW, stageH);
   ctx.clip();
 
+  // Subtle alternating column banding
+  ctx.fillStyle = 'rgba(30, 36, 68, 0.15)';
+  for (let c = -STAGE_COLS_HALF; c < STAGE_COLS_HALF; c++) {
+    if ((c + STAGE_COLS_HALF) % 2 === 1) {
+      const x = centerX + c * unit;
+      ctx.fillRect(x, top, unit, stageH);
+    }
+  }
+
   // Grid lines within the stage
-  ctx.strokeStyle = '#222244';
-  ctx.lineWidth = 1;
+  ctx.strokeStyle = '#2a2a4a';
+  ctx.lineWidth = 0.5;
   // Vertical lines
   for (let c = -STAGE_COLS_HALF; c <= STAGE_COLS_HALF; c++) {
     const x = centerX + c * unit;
@@ -226,7 +235,7 @@ function draw() {
 
   // Red/coral rounded border rectangle defining the stage
   ctx.strokeStyle = '#e94560';
-  ctx.lineWidth = 2;
+  ctx.lineWidth = 2.5;
   drawRoundedRect(ctx, left, top, stageW, stageH, 12);
   ctx.stroke();
 
