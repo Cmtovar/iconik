@@ -87,6 +87,13 @@ function draw() {
   }
 
 
+  // Red cross at center point
+  ctx.strokeStyle = '#e94560';
+  ctx.lineWidth = 1.5;
+  const crossLen = 10;
+  ctx.beginPath(); ctx.moveTo(cx - crossLen, cy); ctx.lineTo(cx + crossLen, cy); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(cx, cy - crossLen); ctx.lineTo(cx, cy + crossLen); ctx.stroke();
+
   // Red border (rounded, coral-ish)
   ctx.strokeStyle = '#e94560';
   ctx.lineWidth = 2.5;
